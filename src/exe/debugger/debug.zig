@@ -198,11 +198,16 @@ pub fn debug(ctx_in: Context) !void {
 					}
 				}
 
+				_ = s.eatIn(sl.parser.Token.chars_whitespace);
+				if (s.valid()) {
+					try ctx.out.print("\x1b[2;3munused arguments '{s}'\x1b[0m\n", .{s.text[s.state.position..]});
+				}
+
 				try @call(.auto, func, args);
 				break;
 			}
 		} else {
-			try ctx.out.print("Invalid command '{s}'\n", .{s.text});
+			try ctx.out.print("invalid command '{s}'\n", .{s.text});
 		}
 	}
 }
