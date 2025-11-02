@@ -176,14 +176,17 @@ pub fn debug(ctx_in: Context) !void {
 	while (!quit) {
 		try ctx.out.print("> ", .{});
 		try ctx.out.flush();
+		const input = try ctx.in.takeSentinel('\n');
 
-		var s = sl.text.Scanner {.text = try ctx.in.takeSentinel('\n')};
+		var s = sl.text.Scanner {.text = input};
 		const command_name = s.eatIn(sl.parser.Token.chars_name);
 		_ = s.eatIn(sl.parser.Token.chars_whitespace);
 
 		inline for (comptime std.meta.declarations(commands)) |decl| {
-			// try ctx.out.print("{s}\n", .{decl.name});
 			if (std.mem.startsWith(u8, decl.name, command_name)) {
+				// show the name of the called command
+				try ctx.out.print("\r\x1b[1A\x1b[{}C\x1b[0;2m: {s}\x1b[0m\n", .{input.len + 3, decl.name});
+
 				const func = @field(commands, decl.name);
 				const Args = std.meta.ArgsTuple(@TypeOf(func));
 				var args: Args = undefined;
@@ -196,6 +199,7 @@ pub fn debug(ctx_in: Context) !void {
 						const rest = s.eatIn(all_chars);
 						args[i] = .{rest};
 					}
+					// TODO: compile error for invalid type
 				}
 
 				_ = s.eatIn(sl.parser.Token.chars_whitespace);
