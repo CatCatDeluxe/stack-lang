@@ -17,7 +17,7 @@ pub const Error = error {};
 
 pub const CompileOptions = struct {
 	temp_alloc: std.mem.Allocator,
-	constants: *Constants.Builder,
+	constants: *Constants,
 	filename: []const u8,
 	errors: *ErrorList,
 };
@@ -36,7 +36,7 @@ fn compileIn(
 	ir: IRNode,
 	opts: CompileOptions,
 	/// The function to write instructions to.
-	func: *Constants.Builder.CreateFunc,
+	func: *Constants.CreateFunc,
 	captures: *NameList,
 	scope: *Scope
 ) (Error || error {OutOfMemory})!void {
@@ -247,7 +247,7 @@ fn parentLocalExists(first_parent: ?*Scope, name: []const u8) bool {
 
 /// Compiles one IR node and writes the resulting instruction(s) to `func`.
 /// This may also modify the provided `Constants` inside of `opts`.
-pub fn compileFunc(ir: IRNode, opts: CompileOptions, func: *Constants.Builder.CreateFunc) (Error || error {OutOfMemory})!void {
+pub fn compileFunc(ir: IRNode, opts: CompileOptions, func: *Constants.CreateFunc) (Error || error {OutOfMemory})!void {
 	var scope = Scope {.parent = null, .is_function = false, .locals = .{}};
 	var captures = NameList {};
 	defer captures.deinit(opts.temp_alloc);

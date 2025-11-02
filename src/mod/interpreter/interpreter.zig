@@ -135,7 +135,7 @@ inline fn frameFrom(self: @This(), func: Variant) std.mem.Allocator.Error!Frame 
 		.function_ref => |id| {
 			return .{
 				.id = id,
-				.code = self.constants.functions[id].code,
+				.code = self.constants.functions.items[id].code,
 				.captures = null,
 				.locals = .empty,
 				.local_counts = .empty,
@@ -146,7 +146,7 @@ inline fn frameFrom(self: @This(), func: Variant) std.mem.Allocator.Error!Frame 
 		.function_instance => |inst| {
 			return .{
 				.id = inst.id,
-				.code = self.constants.functions[inst.id].code,
+				.code = self.constants.functions.items[inst.id].code,
 				.captures = inst.captures.inc(),
 				.locals = try .initCapacity(self.alloc, 2),
 				.local_counts = .empty,

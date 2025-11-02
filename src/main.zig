@@ -93,7 +93,7 @@ pub fn main() !void {
 	var compiler_alloc = std.heap.ArenaAllocator.init(alloc);
 	defer compiler_alloc.deinit();
 
-	var c_constants = sl.Constants.Builder.init(compiler_alloc.allocator());
+	var constants = sl.Constants.init(compiler_alloc.allocator());
 
 	// IR generation
 	errors.current_step = "analyzer";
@@ -101,7 +101,7 @@ pub fn main() !void {
 
 	const ir_nodes = try sl.ir.analyzeAll(ast, .{
 		.alloc = ir_alloc.allocator(),
-		.constants = &c_constants,
+		.constants = &constants,
 		.errs = &errors,
 	});
 
@@ -118,7 +118,7 @@ pub fn main() !void {
 	defer compiler_temp_alloc.deinit();
 
 	const main_func_constant = try sl.compiler.compile(ir_nodes, .{
-		.constants = &c_constants,
+		.constants = &constants,
 		.errors = &errors,
 		.filename = args.positional.file,
 		.temp_alloc = compiler_temp_alloc.allocator(),
@@ -126,11 +126,11 @@ pub fn main() !void {
 
 	if (args.show == .bytecode) {
 		std.debug.print("======= GLOBALS =======\n", .{});
-		for (c_constants.globals.items) |v| {
+		for (constants.globals.items) |v| {
 			std.debug.print("{f}, ", .{v});
 		}
 		std.debug.print("\n\n====== FUNCTIONS ======\n", .{});
-		for (c_constants.functions.items, 0..) |func, id| {
+		for (constants.functions.items, 0..) |func, id| {
 			std.debug.print(":: #{} / {s}\n", .{id, func.filename});
 			for (func.code, 0..) |inst, idx| {
 				std.debug.print(" \x1b[2m{:0>3}.\x1b[0m {f}\n", .{idx, inst});
@@ -139,7 +139,6 @@ pub fn main() !void {
 		return;
 	}
 
-	const constants = try c_constants.finalize(compiler_alloc.allocator());
 	var env = try sl.Env.init(alloc, &constants);
 	defer env.deinit();
 

@@ -50,7 +50,7 @@ const commands = struct {
 
 		var arena = std.heap.ArenaAllocator.init(c.env.alloc); defer arena.deinit();
 		// var rks = sl.parser.parseText(code, arena.allocator(), &errs);
-		var temp_consts = sl.Constants.Builder.init(c.env.alloc);
+		var temp_consts = sl.Constants.init(c.env.alloc);
 
 		const exec_id = try sl.compileFunction(&temp_consts, .{
 			.code = code,

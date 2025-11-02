@@ -26,7 +26,7 @@ pub const Options = struct {
 
 /// Compiles a string of code into a function in `constants`.
 /// This process can be customized a lot more by using
-pub fn compileFunction(out: *Constants.Builder, opts: Options) (parser.SyntaxError || ir.AnalyzerError || compiler.Error || error {OutOfMemory})!Constants.ID {
+pub fn compileFunction(out: *Constants, opts: Options) (parser.SyntaxError || ir.AnalyzerError || compiler.Error || error {OutOfMemory})!Constants.ID {
 	var dummy_errs = ErrorList.init(opts.temp_alloc);
 	defer dummy_errs.clear();
 	const errs = if (opts.errs) |e| e else &dummy_errs;

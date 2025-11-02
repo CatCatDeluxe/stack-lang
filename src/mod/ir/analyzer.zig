@@ -21,7 +21,7 @@ pub const Context = struct {
 	/// needed in memory after they are used in a later compilation step, so
 	/// this can be a separate temporary allocator.
 	alloc: std.mem.Allocator,
-	constants: *Constants.Builder,
+	constants: *Constants,
 };
 
 const Scope = struct {

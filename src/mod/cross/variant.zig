@@ -1,7 +1,6 @@
 const std = @import("std");
 const Env = @import("../interpreter/interpreter.zig");
-
-pub const SymbolID = u16;
+const Symbols = @import("symbols.zig");
 
 /// A basic implementation of a ref-counted pointer.
 /// Does not do anything about cyclic references.
@@ -51,7 +50,7 @@ pub fn rc(val: anytype, alloc: std.mem.Allocator) !Rc(@TypeOf(val)) {
 pub const Variant = union(enum) {
 	/// Just a number.
 	num: f64,
-	symbol: SymbolID,
+	symbol: Symbols.SymbolID,
 	/// A reference to a function in the current environment.
 	function_ref: u32,
 	/// An instance of a function, including captures. The memory is managed
