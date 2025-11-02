@@ -19,8 +19,8 @@ pub const chars_name = Charset.set(.{chars_name_start, Charset.range('0', '9'), 
 /// All characters included in an operator name
 pub const chars_operator = Charset.set("+-*/~=<>^&%");
 
-pub const block_comment_start = "--begin";
-pub const block_comment_end = "--end";
+pub const block_comment_start = "--(";
+pub const block_comment_end = ")--";
 
 pub const Type = enum {
 	lbracket, rbracket,
