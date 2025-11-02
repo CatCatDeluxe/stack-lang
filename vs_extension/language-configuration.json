@@ -1,0 +1,15 @@
+{
+	"brackets": [
+		["{", "}"],
+		["[", "]"],
+		["(", ")"]
+	],
+	"comments": {
+		"lineComment": "--",
+		"blockComment": ["--begin", "end--"]
+	},
+	"indentationRules": {
+		// "increaseIndentPattern": ".*[(\\[{:]$",
+		// "decreaseIndentPattern": "[)}\\]|].*"
+	}
+}

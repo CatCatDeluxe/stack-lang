@@ -1,0 +1,71 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/refs/heads/master/tmlanguage.json",
+	"scopeName": "source.stacklang",
+	"patterns": [{"include": "#expression"}],
+	"repository": {
+		"expression": {
+			"patterns": [
+				{
+					"name": "comment.block",
+					"begin": "--begin([^a-zA-Z0-9]|$)",
+					"end": "--end([^a-zA-Z0-9]|$)"
+				},
+				{
+					"name": "comment.block.documentation",
+					"match": "(?<=^|[^+*=\\-\\/])--[!\\-].*$"
+				},
+				{
+					"name": "comment.line",
+					"match": "(?<=^|[^+*=\\-\\/])--.*$"
+				},
+				{
+					"name": "entity.name.function",
+					"match": "[+\\-*\\/\\~=<>]"
+				},
+				{
+					"name": "entity.name.function",
+					"match": "[a-z]([_\\-]?[a-zA-Z0-9])*(?=\\s*!)"
+				},
+				{
+					"name": "variable.name",
+					"match": "[a-z]([_\\-]?[a-zA-Z0-9])*"
+				},
+				{
+					"name": "keyword.operator.logical",
+					"match": "[!@]"
+				},
+				{
+					"name": "constant.numeric",
+					"match": "[0-9]+(\\.[0-9]*)?(e[0-9]+)?"
+				},
+				{
+					"captures": {
+						"1": {
+							"name": "constant.symbol"
+						},
+						"2": {
+							"name": "constant.symbol"
+						}
+					},
+					"match": "(')([a-z]([_\\-]?[a-zA-Z0-9])*)"
+				},
+				{
+					"captures": {
+						"1": {
+							"name": "keyword.operator.logical"
+						},
+						"2": {
+							"name": "entity.name.type"
+						}
+					},
+					"match": "([({|])([^{(})|:]*)(?=:)"
+				},
+				{
+					"name": "keyword.operator.logical",
+					"match": "[|:]"
+				}
+
+			]
+		}
+	}
+}

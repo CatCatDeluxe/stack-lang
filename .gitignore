@@ -1,0 +1,5 @@
+.vscode
+.zig-cache
+.temp
+zig-out
+testcode/
