@@ -1,5 +1,5 @@
 .vscode
-.zig-cache
+**/.zig-cache
 .temp
 zig-out
 testcode/
