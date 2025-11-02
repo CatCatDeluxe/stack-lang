@@ -146,6 +146,7 @@ pub fn main() !void {
 
 	var dbg_stdin = std.fs.File.stdin().reader(staticBuffer(2048));
 	try dbg.debug(.{
+		.constants = &constants,
 		.env = &env,
 		.files = &files,
 		.in = &dbg_stdin.interface,

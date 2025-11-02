@@ -117,6 +117,13 @@ pub fn call(self: *@This(), variant: Variant) (InterpreterError || std.mem.Alloc
 	}
 }
 
+/// Calls the function at id `id`.
+pub fn callId(self: *@This(), id: Constants.ID) std.mem.Allocator.Error!void {
+	const spot = try self.frames.addOne(self.alloc);
+	errdefer _ = self.frames.pop();
+	spot.* = try self.frameFrom(.{.function_ref = id});
+}
+
 /// Utility function. Returns the current stack frame.
 pub inline fn topFrame(self: @This()) *Frame {
 	return &self.frames.items[self.frames.items.len - 1];

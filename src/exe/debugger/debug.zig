@@ -49,18 +49,25 @@ const commands = struct {
 		errs.current_filename = "(repl)";
 
 		var arena = std.heap.ArenaAllocator.init(c.env.alloc); defer arena.deinit();
-		// var rks = sl.parser.parseText(code, arena.allocator(), &errs);
-		var temp_consts = sl.Constants.init(c.env.alloc);
 
-		const exec_id = try sl.compileFunction(&temp_consts, .{
+		const func_id = try sl.compileFunction(c.constants, .{
 			.code = code,
 			.errs = &errs,
 			.filename = errs.current_filename.?,
 			.temp_alloc = arena.allocator(),
 		});
 
-		_ = exec_id;
-		unreachable;
+		try errs.printTo(c.out, c.files);
+
+		// Don't run if there are any errors
+		for (errs.errors.items) |e| {
+			if (e.level == .err) {
+				try c.out.print("\x1b[2;3mREPL execution canceled because of errors\x1b[0m\n", .{});
+				return;
+			}
+		}
+
+		try c.env.callId(func_id);
 	}
 
 	pub fn run(c: Context) !void {
@@ -150,6 +157,8 @@ const commands = struct {
 };
 
 pub const Context = struct {
+	/// A mutable reference to the same constants used by `env`.
+	constants: *sl.Constants,
 	env: *sl.Env,
 	files: *const sl.FileCache,
 	out: *std.Io.Writer,

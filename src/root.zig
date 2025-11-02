@@ -31,13 +31,17 @@ pub fn compileFunction(out: *Constants, opts: Options) (parser.SyntaxError || ir
 	defer dummy_errs.clear();
 	const errs = if (opts.errs) |e| e else &dummy_errs;
 
+	errs.current_step = "parser";
 	const ast_nodes = try parser.parseText(opts.code, opts.temp_alloc, errs);
+
+	errs.current_step = "analyzer";
 	const ir_nodes = try ir.analyzeAll(ast_nodes, .{
 		.errs = errs,
 		.alloc = opts.temp_alloc,
 		.constants = out,
 	});
 
+	errs.current_step = "compiler";
 	return try compiler.compile(ir_nodes, .{
 		.constants = out,
 		.errors = errs,
