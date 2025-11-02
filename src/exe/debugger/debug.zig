@@ -42,7 +42,20 @@ const commands = struct {
 		}
 	}
 
-	pub fn repl(c: Context, code_p: param.RestOfLine) !void {
+	pub fn run(c: Context) !void {
+		while (true) {
+			switch (try runStep(c)) {
+				.normal => {},
+				.at_end => break,
+				.breakpoint => {
+					_ = try c.out.write("\x1b[31;1m * \x1b[0mbreakpoint\n");
+					break;
+				}
+			}
+		}
+	}
+
+		pub fn repl(c: Context, code_p: param.RestOfLine) !void {
 		const code: []const u8 = code_p.@"0";
 
 		var errs = sl.ErrorList.init(c.env.alloc); defer errs.clear();
@@ -68,19 +81,6 @@ const commands = struct {
 		}
 
 		try c.env.callId(func_id);
-	}
-
-	pub fn run(c: Context) !void {
-		while (true) {
-			switch (try runStep(c)) {
-				.normal => {},
-				.at_end => break,
-				.breakpoint => {
-					_ = try c.out.write("\x1b[31;1m * \x1b[0mbreakpoint\n");
-					break;
-				}
-			}
-		}
 	}
 
 	pub fn instruction(c: Context) !void {
