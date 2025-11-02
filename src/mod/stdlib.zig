@@ -38,6 +38,7 @@ pub const stdlib = struct {
 		const args = try require(e, 2);
 		e.topStack().items.len -= 2;
 		e.topStack().appendAssumeCapacity(.fromPrimitive(args[0].eql(args[1])));
+		for (args) |v| v.dec(e.alloc);
 	}
 };
 
