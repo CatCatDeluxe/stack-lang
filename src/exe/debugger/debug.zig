@@ -176,7 +176,7 @@ pub fn debug(ctx_in: Context) !void {
 	while (!quit) {
 		try ctx.out.print("> ", .{});
 		try ctx.out.flush();
-		const input = try ctx.in.takeSentinel('\n');
+		const input = try ctx.in.takeDelimiterExclusive('\n');
 
 		var s = sl.text.Scanner {.text = input};
 		const command_name = s.eatIn(sl.parser.Token.chars_name);
