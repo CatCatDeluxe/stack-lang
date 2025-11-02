@@ -148,9 +148,9 @@ pub fn read(p_in: Scanner) ?Token {
 	// Handle comments
 	if (c == '-' and p.peekc(1) == '-') {
 		// multiline comments
-		if (p.nextIs(block_comment_start) and !chars_name.has(p.peekc(block_comment_start.len))) {
+		if (p.nextIs(block_comment_start)) {
 			while (p.valid()) {
-				if (p.nextIs(block_comment_end) and !chars_name.has(p.peekc(block_comment_end.len))) {
+				if (p.nextIs(block_comment_end)) {
 					break;
 				}
 				p.advance(1);
