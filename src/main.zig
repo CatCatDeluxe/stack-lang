@@ -30,6 +30,7 @@ pub fn main() !void {
 			pub const descriptions = .{
 				.show = "Shows the info for a specified compilation step and then exits.",
 				.debug = "Prints each instruction being executed, and provides debugging features",
+				.nostd = "Don't include the standard library",
 			};
 
 			positional: struct {
@@ -49,6 +50,7 @@ pub fn main() !void {
 				none, ast, ir, bytecode
 			} = .none,
 
+			nostd: bool,
 			debug: bool,
 		},
 		.{});
@@ -111,6 +113,11 @@ pub fn main() !void {
 		return;
 	}
 
+	// Inject stdlib
+	if (!args.nostd) {
+		try sl.stdlib.addLibrary(&constants, sl.stdlib.stdlib);
+	}
+
 	// Generate instructions
 	errors.current_step = "compiler";
 
@@ -152,8 +159,6 @@ pub fn main() !void {
 		.in = &dbg_stdin.interface,
 		.out = &stderr.interface,
 	});
-
-
 
 	if (env.stacks.items.len < 0) {
 		errors.pushError(.err, .{.line = 0, .col = 0, .pos = 0}, "More than 1 stack on exit", .{});

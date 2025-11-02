@@ -77,6 +77,8 @@ pub fn hash(self: Name) u64 {
 	return h.final();
 }
 
+const regular_name_start = Charset.set(.{Charset.range('a', 'z'), Charset.range('A', 'Z')});
+
 const Iter = struct {
 	const included_sep = Charset.set(.{Charset.range('A', 'Z'), Charset.range('0', '1')});
 	const sep = Charset.set(.{'-', '_'});
@@ -89,6 +91,11 @@ const Iter = struct {
 	/// placed.
 	pub fn next(self: *Iter) ?Slice {
 		if (!self.s.valid()) return null;
+
+		if (!regular_name_start.has(self.s.text[0])) {
+			self.s.state.position = self.s.text.len;
+			return Slice {.start = 0, .len = @intCast(self.s.text.len)};
+		}
 
 		if (sep.has(self.s.nextc())) self.s.advance(1);
 		return self.nextSegment();

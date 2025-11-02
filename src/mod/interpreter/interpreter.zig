@@ -14,7 +14,8 @@ pub const InterpreterError = error {
 	NotFunction,
 	StackUnderflow,
 	MatchFailed,
-	Breakpoint
+	Breakpoint,
+	TypeError,
 };
 
 /// Stores the context for a stack frame.

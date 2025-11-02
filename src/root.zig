@@ -4,6 +4,7 @@ pub const text = @import("mod/text/text.zig");
 pub const parser = @import("mod/parser/parser.zig");
 pub const ir = @import("mod/ir/analyzer.zig");
 pub const compiler = @import("mod/compiler/compiler.zig");
+pub const stdlib = @import("mod/stdlib.zig");
 
 pub const Constants = @import("mod/cross/constants.zig");
 pub const Env = @import("mod/interpreter/interpreter.zig");

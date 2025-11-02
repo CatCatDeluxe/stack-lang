@@ -24,16 +24,15 @@ fn modules(b: *std.Build, target: std.Build.ResolvedTarget, opt: std.builtin.Opt
 	return exe;
 }
 
-
 pub fn build(b: *std.Build) void {
 	const target = b.standardTargetOptions(.{});
-	const opt = b.standardOptimizeOption(.{});
+	const optimize = b.standardOptimizeOption(.{});
 
-	const exe = modules(b, target, opt);
+	const exe = modules(b, target, optimize);
 
 	const flags_dep = b.dependency("flags", .{
 		.target = target,
-		.optimize = opt,
+		.optimize = optimize,
 	});
 	exe.root_module.addImport("flags", flags_dep.module("flags"));
 
