@@ -36,9 +36,11 @@ pub const stdlib = struct {
 
 	pub fn @"="(e: *sl.Env) !void {
 		const args = try require(e, 2);
-		e.topStack().items.len -= 2;
-		e.topStack().appendAssumeCapacity(.fromPrimitive(args[0].eql(args[1])));
+		const res = sl.Variant.fromPrimitive(args[0].eql(args[1]));
 		for (args) |v| v.dec(e.alloc);
+
+		e.topStack().items.len -= 2;
+		e.topStack().appendAssumeCapacity(res);
 	}
 };
 
