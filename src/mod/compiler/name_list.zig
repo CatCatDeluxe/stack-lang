@@ -1,24 +1,25 @@
 //! Stores a list of names which can be added to and searched.
 //! Does not own the memory of the actual names.
 const std = @import("std");
+const Name = @import("../text/name.zig");
 
 const Self = @This();
 
 pub const NameIndex = u16;
 
-names: std.ArrayList([]const u8) = .{},
+names: std.ArrayList(Name) = .{},
 
 const Iterator = struct {
 	parent: *const Self,
 	pos: usize,
 
-	pub fn next(self: *@This()) ?[]const u8 {
+	pub fn next(self: *@This()) ?*const Name {
 		if (self.pos == 0) return null;
 		self.pos -= 1;
-		return self.parent.names.items[self.pos];
+		return &self.parent.names.items[self.pos];
 	}
 
-	pub fn nexti(self: *@This()) ?struct {NameIndex, []const u8} {
+	pub fn nexti(self: *@This()) ?struct {NameIndex, *const Name} {
 		const str = self.next();
 		if (str) |s| return .{@intCast(self.pos), s};
 		return null;
@@ -29,24 +30,24 @@ pub fn iterator(self: *const @This()) Iterator {
 	return .{.parent = self, .pos = self.names.items.len};
 }
 
-pub fn get(self: @This(), name: []const u8) ?NameIndex {
+pub fn get(self: @This(), name: Name) ?NameIndex {
 	var i = self.iterator();
 	while (i.nexti()) |pair| {
-		const index, const string = pair;
-		if (std.mem.eql(u8, name, string)) return index;
+		const index, const pname = pair;
+		if (name.eql(pname.*)) return index;
 	}
 	return null;
 }
 
 /// Adds a name, even if it already exists.
-pub fn add(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !NameIndex {
+pub fn add(self: *@This(), alloc: std.mem.Allocator, name: Name) !NameIndex {
 	const ptr = try self.names.addOne(alloc);
 	ptr.* = name;
 	return @intCast(self.names.items.len - 1);
 }
 
 /// Adds a name, or does nothing if it already exists. Returns the index of the name.
-pub fn indexName(self: *@This(), alloc: std.mem.Allocator, name: []const u8) !NameIndex {
+pub fn indexName(self: *@This(), alloc: std.mem.Allocator, name: Name) !NameIndex {
 	if (self.get(name)) |i| return i;
 	return try self.add(alloc, name);
 }

@@ -29,7 +29,14 @@ fn runStep(c: Context) !StepExit {
 
 const param = struct {
 	const String = []const u8;
+	const Int = isize;
 	const RestOfLine = struct {[]const u8};
+	fn Default(T: type, comptime val: T) type {
+		return struct {
+			pub const default = val;
+			value: T,
+		};
+	}
 };
 
 /// Conatins the commands for the debugger.
@@ -65,7 +72,7 @@ const commands = struct {
 
 		var arena = std.heap.ArenaAllocator.init(c.env.alloc); defer arena.deinit();
 
-		const func_id = sl.compileFunction(c.constants, .{
+		const func_var_id = sl.compileFunction(c.constants, .{
 			.code = code,
 			.errs = &errs,
 			.filename = errs.current_filename.?,
@@ -85,7 +92,7 @@ const commands = struct {
 			}
 		}
 
-		try c.env.callId(func_id);
+		try c.env.call(c.constants.globals.items[func_var_id]);
 	}
 
 	pub fn instruction(c: Context) !void {
@@ -139,6 +146,21 @@ const commands = struct {
 		}
 	}
 
+	pub fn declare(c: Context, name_text: param.RestOfLine) !void {
+		const val = c.env.topStack().pop() orelse {
+			try c.out.print("\x1b[2;3mtop stack is empty\x1b[0m\n", .{});
+			return;
+		};
+		errdefer val.dec(c.env.alloc);
+		const name = sl.text.Name.from(name_text.@"0") catch |err| {
+			return c.out.print("\x1b[2;3minvalid name '{s}': {s}", .{name_text.@"0", @errorName(err)});
+		};
+		if (c.constants.getNamed(name) != null) {
+			return c.out.print("\x1b[2;3mglobal {f} already exists\x1b[0m\n", .{name});
+		}
+		_ = try c.constants.addNamed(name, val);
+	}
+
 	pub fn frames(c: Context) !void {
 		for (c.env.frames.items, 0..) |cframe, frame_index| {
 			try c.out.print("  Frame #{}\n", .{frame_index});
@@ -148,6 +170,19 @@ const commands = struct {
 				try c.out.print("    {:0>3}.\x1b[0m {f}\n", .{i, inst});
 			}
 		}
+	}
+
+	pub fn @"return"(c: Context) !void {
+		var f = c.env.frames.pop() orelse return;
+		f.deinit(c.env.alloc);
+	}
+
+	pub fn skip(c: Context, n: param.Default(usize, 1)) !void {
+		if (c.env.frames.items.len == 0) {
+			try c.out.print("\x1b[2;3mcall stack empty\x1b[0m\n", .{});
+			return;
+		}
+		c.env.topFrame().position += n.value;
 	}
 
 	pub fn help(ctx: Context) !void {
@@ -178,7 +213,7 @@ pub fn debug(ctx_in: Context) !void {
 	var quit = false;
 	ctx.quit = &quit;
 
-	while (!quit) {
+	mainloop: while (!quit) {
 		try ctx.out.print("> ", .{});
 		try ctx.out.flush();
 		const input = try ctx.in.takeDelimiterExclusive('\n');
@@ -199,12 +234,10 @@ pub fn debug(ctx_in: Context) !void {
 
 				// Parse each argument. Error if not found.
 				inline for (std.meta.fields(Args)[1..], 1..) |field, i| {
-					if (field.type == param.RestOfLine) {
-						const all_chars = sl.text.Charset.set(.{}).inv();
-						const rest = s.eatIn(all_chars);
-						args[i] = .{rest};
-					}
-					// TODO: compile error for invalid type
+					args[i] = parseArg(&s, field.type) catch |err| {
+						try ctx.out.print("Formatting error or missing arg: arg {}: {s}", .{i, @errorName(err)});
+						continue :mainloop;
+					};
 				}
 
 				_ = s.eatIn(sl.parser.Token.chars_whitespace);
@@ -219,4 +252,23 @@ pub fn debug(ctx_in: Context) !void {
 			try ctx.out.print("invalid command '{s}'\n", .{s.text});
 		}
 	}
+}
+
+fn parseArg(s: *sl.text.Scanner, Arg: type) !Arg {
+	switch (@typeInfo(Arg)) {
+		.int => {
+			return try std.fmt.parseInt(Arg, s.eatIn(sl.text.Charset.range('0', '9')), 10);
+		},
+		.@"struct" => {
+			if (Arg == param.RestOfLine) {
+				const all_chars = sl.text.Charset.set(.{}).inv();
+				return Arg {s.eatIn(all_chars)};
+			}
+			if (@hasDecl(Arg, "default")) {
+				return Arg {.value = parseArg(s, @TypeOf(Arg.default)) catch Arg.default};
+			}
+		},
+		else => {},
+	}
+	@compileError(std.fmt.comptimePrint("Unsupported param type: {}", .{Arg}));
 }

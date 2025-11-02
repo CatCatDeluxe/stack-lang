@@ -22,27 +22,30 @@ pub fn init(alloc: std.mem.Allocator) Symbols {
 }
 
 /// Returns the ID of a string. Makes a copy of the provided name.
-pub fn idOfString(self: *Symbols, name_str: []const u8) (Error || Name.Error || std.mem.Allocator.Error)!SymbolID {
+pub inline fn idOfString(self: *Symbols, name_str: []const u8) (Error || Name.Error || std.mem.Allocator.Error)!SymbolID {
 	const name = try Name.from(name_str);
-	const pair = try self.name_to_id.getOrPut(self.alloc, name);
+	return (try self.addOrCreate(name)).id;
+}
 
-	if (pair.found_existing) return pair.value_ptr.*;
+/// Returns the owned version of the name.
+pub inline fn ownName(self: *Symbols, name: Name) std.mem.Allocator.Error!*const Name {
+	return (try self.addOrCreate(name)).name;
+}
+
+pub fn addOrCreate(self: *Symbols, name: Name) std.mem.Allocator.Error!struct {name: *const Name, id: SymbolID} {
+	const kv = try self.name_to_id.getOrPut(self.alloc, name);
+	if (kv.found_existing) return .{.name = kv.key_ptr, .id = kv.value_ptr.*};
 	errdefer _ = self.name_to_id.remove(name);
 
-	if (self.name_to_id.size >= max_symbol_count) {
-		return Error.SymbolLimitExceeded;
-	}
-
-	const array_spot = try self.names.addOne(self.alloc);
+	const id: SymbolID = @intCast(self.names.items.len);
+	const spot = try self.names.addOne(self.alloc);
 	errdefer _ = self.names.pop();
 
-	const id: SymbolID = @intCast(self.name_to_id.size - 1);
-
-	// The key should store an owned copy of the name
-	pair.key_ptr.text = try self.alloc.dupe(u8, name_str);
-	pair.value_ptr.* = id;
-	array_spot.* = pair.key_ptr.*;
-	return id;
+	kv.key_ptr.* = name;
+	kv.key_ptr.text = try self.alloc.dupe(u8, name.text);
+	kv.value_ptr.* = id;
+	spot.* = name;
+	return .{.name = kv.key_ptr, .id = id};
 }
 
 pub fn variant(self: *Symbols, sym_name: []const u8) (Error || Name.Error || std.mem.Allocator.Error)!Variant {

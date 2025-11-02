@@ -4,6 +4,7 @@ const ObjWriter = @import("../utils/o_writer.zig").ObjWriter;
 const ErrorList = @import("../error_list.zig");
 const NameList = @import("name_list.zig");
 const Constants = @import("../cross/constants.zig");
+const Name = @import("../text/name.zig");
 
 pub const Instruction = @import("instruction.zig");
 const Variant = @import("../cross/variant.zig").Variant;
@@ -13,7 +14,7 @@ pub const debug_mode = true;
 pub const LocalIndex = u8;
 
 /// Any error emitted just from the compilation process.
-pub const Error = error {};
+pub const Error = error {} || Name.Error;
 
 pub const CompileOptions = struct {
 	temp_alloc: std.mem.Allocator,
@@ -39,7 +40,7 @@ fn compileIn(
 	func: *Constants.CreateFunc,
 	captures: *NameList,
 	scope: *Scope
-) (Error || error {OutOfMemory})!void {
+) (Error || Name.Error || error {OutOfMemory})!void {
 	// const alloc = w.allocator;
 
 	switch (ir.data) {
@@ -93,11 +94,13 @@ fn compileIn(
 				.{std.meta.activeTag(variant), variant, ir.root.position}),
 		},
 		.push_named => |in_name| {
-			if (scope.locals.get(in_name)) |index| {
+			const name = parseName(in_name, ir.root.position, opts.errors) catch return;
+
+			if (scope.locals.get(name)) |index| {
 				// Use a local
 				try func.add(.init(.push_local, ir.root.position, index));
-			} else if (parentLocalExists(scope.parent, in_name)) {
-				const capture_id = captures.indexName(opts.temp_alloc, in_name) catch |err| {
+			} else if (parentLocalExists(scope.parent, name)) {
+				const capture_id = captures.indexName(opts.temp_alloc, name) catch |err| {
 					if (err == error.NameListOverflow) {
 						opts.errors.pushError(.err, ir.root.position, "Capture list has too many items", .{});
 					}
@@ -105,7 +108,7 @@ fn compileIn(
 				};
 
 				try func.add(.init(.push_capture, ir.root.position, capture_id));
-			} else if (opts.constants.names.get(in_name)) |global_id| {
+			} else if (opts.constants.names.get(name)) |global_id| {
 				// Use a global variable
 				try func.add(.init(.push_global, ir.root.position, global_id));
 			} else {
@@ -149,7 +152,8 @@ fn compileIn(
 					const check = checks[index];
 					var add_pop = true;
 
-					if (check.name) |name| {
+					if (check.name) |in_name| {
+						const name = try parseName(in_name, check.root.position, opts.errors);
 						if (check_name_list.get(name) == null) {
 							// new name introduced -- add local
 							if (scope.locals.names.items.len == std.math.maxInt(u8)) {
@@ -236,7 +240,7 @@ fn compileIn(
 }
 
 /// Returns whether a local exists in the scope `first_parent` or any of its parent scopes.
-fn parentLocalExists(first_parent: ?*Scope, name: []const u8) bool {
+fn parentLocalExists(first_parent: ?*Scope, name: Name) bool {
 	var parent = first_parent;
 	while (parent) |p| {
 		if (p.locals.get(name)) |_| return true;
@@ -247,7 +251,7 @@ fn parentLocalExists(first_parent: ?*Scope, name: []const u8) bool {
 
 /// Compiles one IR node and writes the resulting instruction(s) to `func`.
 /// This may also modify the provided `Constants` inside of `opts`.
-pub fn compileFunc(ir: IRNode, opts: CompileOptions, func: *Constants.CreateFunc) (Error || error {OutOfMemory})!void {
+pub fn compileFunc(ir: IRNode, opts: CompileOptions, func: *Constants.CreateFunc) (Error || Name.Error || error {OutOfMemory})!void {
 	var scope = Scope {.parent = null, .is_function = false, .locals = .{}};
 	var captures = NameList {};
 	defer captures.deinit(opts.temp_alloc);
@@ -255,13 +259,20 @@ pub fn compileFunc(ir: IRNode, opts: CompileOptions, func: *Constants.CreateFunc
 	try compileIn(ir, opts, func, &captures, &scope);
 }
 
-/// Compiles all of the IR nodes to a function. Returns the ID of the variant
+/// Compiles all of the IR nodes to a function. Returns the ID of the *variant*
 /// referring to that function in the provided `Constants`.
-pub fn compile(nodes: []const IRNode, opts: CompileOptions) (Error || error {OutOfMemory})!Constants.ID {
+pub fn compile(nodes: []const IRNode, opts: CompileOptions) (Error || Name.Error || error {OutOfMemory})!Constants.ID {
 	var func = opts.constants.createFunc(opts.filename);
 	errdefer func.deinit();
 	for (nodes) |ir| {
 		try compileFunc(ir, opts, &func);
 	}
 	return try func.finish();
+}
+
+fn parseName(name: []const u8, pos: anytype, errs: *ErrorList) !Name {
+	return Name.from(name) catch |err| {
+		errs.pushError(.err, pos, "Invalid name: {s}: {s}", .{name, @errorName(err)});
+		return err;
+	};
 }

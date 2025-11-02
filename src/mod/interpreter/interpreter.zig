@@ -37,7 +37,7 @@ const Frame = struct {
 	stack_backups: std.ArrayList([]Variant),
 
 	/// Frees memory and decrements Rc'd variants.
-	fn deinit(self: *Frame, alloc: std.mem.Allocator) void {
+	pub fn deinit(self: *Frame, alloc: std.mem.Allocator) void {
 		for (self.locals.items) |v| {
 			v.dec(alloc);
 		}
