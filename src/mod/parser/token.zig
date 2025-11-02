@@ -17,7 +17,7 @@ pub const chars_name_start = Charset.set(.{Charset.range('a', 'z')});
 /// All characters allowed in a alphanumeric name.
 pub const chars_name = Charset.set(.{chars_name_start, Charset.range('0', '9'), Charset.range('A', 'Z')});
 /// All characters included in an operator name
-pub const chars_operator = Charset.set("+-*/~=<>");
+pub const chars_operator = Charset.set("+-*/~=<>^&%");
 
 pub const block_comment_start = "--begin";
 pub const block_comment_end = "--end";
