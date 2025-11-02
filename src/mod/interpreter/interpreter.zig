@@ -7,7 +7,15 @@ const Constants = @import("../cross/constants.zig");
 const Variant = @import("../cross/variant.zig").Variant;
 const Rc = @import("../cross/variant.zig").Rc;
 
-pub const InterpreterError = error {StackEmpty, StackStackEmpty, InvalidInstruction, NotFunction, StackUnderflow, Breakpoint};
+pub const InterpreterError = error {
+	StackEmpty,
+	StackStackEmpty,
+	InvalidInstruction,
+	NotFunction,
+	StackUnderflow,
+	MatchFailed,
+	Breakpoint
+};
 
 /// Stores the context for a stack frame.
 const Frame = struct {
@@ -30,7 +38,9 @@ const Frame = struct {
 
 	/// Frees memory and decrements Rc'd variants.
 	fn deinit(self: *Frame, alloc: std.mem.Allocator) void {
-		for (self.locals.items) |v| v.dec(alloc);
+		for (self.locals.items) |v| {
+			v.dec(alloc);
+		}
 		self.locals.deinit(alloc);
 		self.local_counts.deinit(alloc);
 
@@ -40,13 +50,13 @@ const Frame = struct {
 		}
 		self.stack_backups.deinit(alloc);
 
-		if (self.captures) |captures| {
+		//if (self.captures) |captures| {
 			//std.debug.print("({any}, rc -> {})", .{captures.val, captures.refcount - 1});
-			if (captures.dec(alloc)) |c| {
-				for (c) |v| v.dec(alloc);
-				alloc.free(c);
-			}
-		}
+			//if (captures.dec(alloc)) |c| {
+				//for (c) |v| v.dec(alloc);
+				//alloc.free(c);
+			//}
+		//}
 	}
 
 	fn pushLocalCount(self: *@This(), alloc: std.mem.Allocator) !void {
@@ -205,7 +215,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 	const frame = self.topFrame();
 	const current = frame.code[frame.position];
 	switch (current.data) {
-		.invalid => return error.InvalidInstruction,
+		.invalid => return InterpreterError.InvalidInstruction,
 		.breakpoint => {
 			return error.Breakpoint;
 		},
@@ -285,6 +295,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		.branch_check_begin => |params| {
 			const stack = self.topStack();
 			if (stack.items.len < params.n_locals) {
+				if (params.jump == 0) return InterpreterError.MatchFailed;
 				frame.position += params.jump;
 				// Return without incrementing the position any more
 				return;
@@ -297,6 +308,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			// It also stores a backup of the pushed values
 			const backup = try frame.stack_backups.addOne(self.alloc);
 			errdefer _ = frame.stack_backups.deinit(self.alloc);
+			for (slice) |v| _ = v.inc();
 			backup.* = try self.alloc.dupe(Variant, slice);
 		},
 		.fail_check_if_false => |offs| {
@@ -307,9 +319,15 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			}
 
 			if (!truthy) {
+				if (offs == 0) return InterpreterError.MatchFailed;
 				frame.position += offs;
 				// Also retrieve the old local count
 				frame.loadLocalCount(self.alloc);
+				// Also load a backup of the stack from before the branch check
+				const backup = frame.stack_backups.pop().?;
+				errdefer for (backup) |v| v.dec(self.alloc);
+				defer self.alloc.free(backup);
+				try self.topStack().appendSlice(self.alloc, backup);
 				return;
 			}
 		},

@@ -122,7 +122,9 @@ pub const Variant = union(enum) {
 
 	pub fn inc(self: @This()) @This() {
 		switch (self) {
-			.function_instance => |f| _ = f.captures.inc(),
+			.function_instance => |f| {
+				_ = f.captures.inc();
+			},
 			else => {}
 		}
 		return self;
@@ -163,12 +165,12 @@ const Colorize = struct {
 			.num => |num| try w.print("\x1b[33m{}\x1b[0m", .{num}),
 			.function_ref => |id| try w.print("fn\x1b[32;2m#\x1b[0;32m{}\x1b[0m", .{id}),
 			.function_instance => |inst| {
-				try w.print("fn\x1b[32;2m#\x1b[0;32m{}\x1b[0m {{", .{inst.id});
+				try w.print("fn\x1b[32;2m#\x1b[0;32m{}\x1b[0m{{", .{inst.id});
 				for (inst.captures.val, 0..) |capture, i| {
 					if (i > 0) try w.print(", ", .{});
 					try w.print("{f}", .{capture.colorize()});
 				}
-				try w.print("}}", .{});
+				try w.print("}}\x1b[35;2m/rc={}\x1b[0m", .{inst.captures.refcount});
 			},
 			.symbol => |id| try w.print("sym\x1b[2;32m#\x1b[0;32m{}\x1b[0m", .{id}),
 			.builtin => |ptr| try w.print("builtin@{}", .{@intFromPtr(ptr)}),

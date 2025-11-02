@@ -210,7 +210,7 @@ fn compileIn(
 				{
 					const fail_jump_to: u16 =
 						if (case_index < cases.len - 1) @intCast(end_pos - first_pos)
-						else @intCast(end_pos - first_pos + 1);
+						else 0; // on the last branch, the jump offset is 0, signalling the match failed
 					func.insts.items[first_pos].data.branch_check_begin.jump = fail_jump_to;
 				}
 

@@ -5,6 +5,7 @@ const StepExit = enum {
 	normal,
 	at_end,
 	breakpoint,
+	runtime_error,
 };
 
 /// Steps the context's interpreter. Assumes there is a next instruction to execute.
@@ -15,9 +16,11 @@ fn runStep(c: Context) !StepExit {
 		error.Breakpoint => return .breakpoint,
 		else => {
 			var temp = sl.ErrorList.init(c.env.alloc);
+			temp.current_step = "runtime";
 			defer temp.clear();
 			temp.pushError(.err, next_instruction.position, "{s}", .{@errorName(err)});
 			try temp.printTo(c.out, c.files);
+			return .runtime_error;
 		}
 	};
 
@@ -37,8 +40,7 @@ const commands = struct {
 			.breakpoint => {
 				c.env.skip();
 			},
-			.at_end => {},
-			.normal => {},
+			else => {},
 		}
 	}
 
@@ -46,16 +48,16 @@ const commands = struct {
 		while (true) {
 			switch (try runStep(c)) {
 				.normal => {},
-				.at_end => break,
+				.at_end, .runtime_error => break,
 				.breakpoint => {
 					_ = try c.out.write("\x1b[31;1m * \x1b[0mbreakpoint\n");
 					break;
-				}
+				},
 			}
 		}
 	}
 
-		pub fn repl(c: Context, code_p: param.RestOfLine) !void {
+	pub fn repl(c: Context, code_p: param.RestOfLine) !void {
 		const code: []const u8 = code_p.@"0";
 
 		var errs = sl.ErrorList.init(c.env.alloc); defer errs.clear();
@@ -63,12 +65,15 @@ const commands = struct {
 
 		var arena = std.heap.ArenaAllocator.init(c.env.alloc); defer arena.deinit();
 
-		const func_id = try sl.compileFunction(c.constants, .{
+		const func_id = sl.compileFunction(c.constants, .{
 			.code = code,
 			.errs = &errs,
 			.filename = errs.current_filename.?,
 			.temp_alloc = arena.allocator(),
-		});
+		}) catch |err| e: {
+			try errs.ePushError(.err, .{.line = 0, .col = 0, .position = 0}, "fatal error: {s}", .{@errorName(err)});
+			break :e undefined; // will always return early because error list is nonempty
+		};
 
 		try errs.printTo(c.out, c.files);
 
@@ -130,7 +135,7 @@ const commands = struct {
 
 		const cframe = c.env.frames.items[c.env.frames.items.len - 1];
 		for (cframe.locals.items, 0..) |v, i| {
-			try c.out.print("  \x1b[32;2m#\x1b[0;32m{:0>2}\x1b[0m: {f}\n", .{i, v});
+			try c.out.print("  \x1b[32;2m#\x1b[0;32m{:0>2}\x1b[0m: {f}\n", .{i, v.colorize()});
 		}
 	}
 
