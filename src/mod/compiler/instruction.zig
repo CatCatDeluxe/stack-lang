@@ -1,5 +1,6 @@
 const std = @import("std");
 const Instruction = @This();
+const Symbols = @import("../cross/symbols.zig");
 pub const debug_mode = true;
 
 /// Creates an enum from a union type.
@@ -26,6 +27,7 @@ pub const Data = union(enum) {
 	/// An invalid instruction. The interpreter will error if it encounters this.
 	invalid,
 	push_float: f64,
+	push_sym: Symbols.SymbolID,
 	push_local: u16,
 	push_capture: u16,
 	push_global: u32,
@@ -178,7 +180,7 @@ pub fn format(
 		.push_float => |f|
 			try printCol(writer, .yellow, " {d}", .{f}),
 
-		.push_global, .push_local, .push_capture => |id|
+		inline .push_global, .push_local, .push_capture, .push_sym => |id|
 			try printCol(writer, .green, " \x1b[2m#\x1b[0;32m{}", .{id}),
 
 		.pop, .push_temp_stack, .pop_temp_stack, .assign_captures => |n|

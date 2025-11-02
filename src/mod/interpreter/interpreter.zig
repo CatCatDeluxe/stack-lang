@@ -222,6 +222,9 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		.push_float => |value| {
 			try self.topStack().append(self.alloc, .{.num = value});
 		},
+		.push_sym => |id| {
+			try self.topStack().append(self.alloc, .{.symbol = id});
+		},
 		.push_local => |index| {
 			try self.topStack().append(self.alloc, frame.locals.items[index].inc());
 		},

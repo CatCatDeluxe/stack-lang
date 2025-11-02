@@ -90,6 +90,7 @@ fn compileIn(
 		},
 		.push => |variant| switch (variant) {
 			.num => |f| try func.add(.init(.push_float, ir.root.position, f)),
+			.symbol => |s| try func.add(.init(.push_sym, ir.root.position, s)),
 			else => std.debug.panic("Invalid variant type for 'push': {} ({f} in {any})",
 				.{std.meta.activeTag(variant), variant, ir.root.position}),
 		},

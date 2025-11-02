@@ -78,7 +78,7 @@ pub const Variant = union(enum) {
 
 	pub fn fromPrimitive(val: anytype) Variant {
 		return switch (@typeInfo(@TypeOf(val))) {
-			.bool => .{.num = if (val) 1 else 2},
+			.bool => .{.num = if (val) 1 else 0},
 			.int, .comptime_int => .{.num = @floatFromInt(val)},
 			.float, .comptime_float => .{.num = val},
 			else => @compileError("Cannot create a variant from type " ++ @typeName(@TypeOf(val))),
