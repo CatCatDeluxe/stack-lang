@@ -2,7 +2,6 @@ const std = @import("std");
 const ir = @import("ir.zig");
 const ErrorList = @import("../error_list.zig");
 const Name = @import("../text/name.zig");
-const NameList = @import("../cross/name_list.zig");
 
 pub const Context = struct {
 	/// The allocator used for the IR nodes.
@@ -54,14 +53,14 @@ pub fn findTailCalls(c: Context, block: []ir.IRNode) void {
 		switch (block[i].data) {
 			.call => if (can_tail_call) {
 				block[i].data = .{.tail_call = {}};
-				break;
+				can_tail_call = false;
 			},
 			.match => |branches| if (can_tail_call) {
 				for (branches) |branch| {
 					_, const body = branch;
 					findTailCalls(c, body);
 				}
-				break;
+				can_tail_call = false;
 			},
 			// TODO: check if a directive affects control flow
 			.directive => {},
