@@ -34,6 +34,20 @@ pub const stdlib = struct {
 		e.topStack().appendAssumeCapacity(.{.num = params[0].* - params[1].*});
 	}
 
+	pub fn @"<"(e: *sl.Env) !void {
+		const args = try require(e, 2);
+		const params = try allAs(2, args, f64);
+		e.topStack().items.len -= 2;
+		e.topStack().appendAssumeCapacity(.fromPrimitive(params[0].* < params[1].*));
+	}
+
+	pub fn @">"(e: *sl.Env) !void {
+		const args = try require(e, 2);
+		const params = try allAs(2, args, f64);
+		e.topStack().items.len -= 2;
+		e.topStack().appendAssumeCapacity(.fromPrimitive(params[0].* > params[1].*));
+	}
+
 	pub fn @"="(e: *sl.Env) !void {
 		const args = try require(e, 2);
 		const res = sl.Variant.fromPrimitive(args[0].eql(args[1]));
