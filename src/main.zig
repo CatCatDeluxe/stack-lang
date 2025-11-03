@@ -50,9 +50,10 @@ pub fn main() !void {
 				none, ast, ir, bytecode
 			} = .none,
 
-			nostd: bool,
-			debug: bool,
-			debug_on_fail: bool,
+			nostd: bool = false,
+			debug: bool = false,
+			debug_on_fail: bool = false,
+			skip_optimization: bool = false,
 
 			pub const switches = .{
 				.debug = 'd',
@@ -113,13 +114,24 @@ pub fn main() !void {
 		.errs = &errors,
 	});
 
+	if (!args.skip_optimization) {
+		const context = sl.ir.optimizer.Context {
+			.alloc = ir_alloc.allocator(),
+			.temp = ir_alloc.allocator(),
+			.errors = &errors,
+		};
+
+		sl.ir.optimizer.findTailCalls(context, ir_nodes);
+		try sl.ir.optimizer.findUnusedNames(context, ir_nodes, null);
+	}
+
 	if (args.show == .ir) {
 		sl.ir.print_ir(ir_nodes);
 		std.debug.print("\n", .{});
 		return;
 	}
 
-	// Inject stdlib
+	// Inject stdlib right before compilation
 	if (!args.nostd) {
 		try sl.stdlib.addLibrary(&constants, sl.stdlib.stdlib);
 	}
@@ -154,6 +166,7 @@ pub fn main() !void {
 
 	// Print all errors accumulated over the compilation process
 	try errors.printTo(&stderr.interface, &files);
+	try stderr.interface.flush();
 	errors.clear();
 	errors.current_step = "runtime";
 

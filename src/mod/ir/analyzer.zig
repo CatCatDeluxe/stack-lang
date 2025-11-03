@@ -7,10 +7,12 @@ const AnyScanner = @import("any_scanner.zig").AnyScanner;
 const ErrList = @import("../error_list.zig");
 const Variant = @import("../cross/variant.zig").Variant;
 const Constants = @import("../cross/constants.zig");
+const Name = @import("../text/name.zig");
 
 const ir = @import("ir.zig");
 pub const IRNode = ir.IRNode;
 pub const MatchCheckNode = ir.MatchCheckNode;
+pub const optimizer = @import("optimizer.zig");
 
 pub const AnalyzerError = error {AnalyzerError};
 
@@ -85,8 +87,13 @@ fn analyzeMatchNames(s: *AnyScanner(ASTNode), w: ObjWriter(MatchCheckNode), ctx:
 		const name, const has_body = getMatchName(s, ctx.errs);
 		const body: ?*ASTNode = if (has_body) s.next() else null;
 
-		const own_name = if (name) |n| try ctx.alloc.dupe(u8, n) else null;
-		errdefer if (own_name) |n| ctx.alloc.free(n);
+		const own_name: ?Name =
+			if (name != null) b: {
+				var n = try parseName(ctx.errs, name_tk.basic);
+				n.text = try ctx.alloc.dupe(u8, n.text);
+				break :b n;
+			} else null;
+		errdefer if (own_name) |n| ctx.alloc.free(n.text);
 
 		if (body) |b| {
 			switch (b.*) {
@@ -98,30 +105,30 @@ fn analyzeMatchNames(s: *AnyScanner(ASTNode), w: ObjWriter(MatchCheckNode), ctx:
 				.match => {
 					ctx.errs.pushError(.err, .{.line = 0, .col = 0, .pos = 0}, "Unexpected match-expr before ':'", .{});
 					s.advance(1);
-					ctx.alloc.free(own_name orelse &.{});
+					return error.AnalyzerError;
 				},
 				.basic => |tk| {
 					s.advance(1);
-					// basic tokens -- Try to match equality
+
+					// try to match equality for literals
 					switch (tk.type) {
 						.number, .symbol => {},
 						else => {
 							ctx.errs.pushError(.err, tk.position, "Unexpected token '{s}' as condition in match names", .{tk.text});
-							ctx.alloc.free(own_name orelse &.{});
+							return error.AnalyzerError;
 						}
 					}
-					const inner = try w.add();
-					errdefer _ = w.unadd();
-					const equals_name = try ctx.alloc.dupe(u8, "=");
-					errdefer ctx.alloc.free(equals_name);
-					var arr = std.array_list.Managed(IRNode).init(ctx.alloc);
-					errdefer arr.deinit();
+
+					const inner = try w.add(); errdefer _ = w.unadd();
+					const equals_name = try ctx.alloc.dupe(u8, "="); errdefer ctx.alloc.free(equals_name);
+
+					var arr = std.array_list.Managed(IRNode).init(ctx.alloc); errdefer arr.deinit();
 					const child_w = ObjWriter(IRNode).from_arr(&arr);
 
 					try analyze(b.*, child_w, ctx);
 					try child_w.writeAll(&.{
 						IRNode {
-							.data = .{.push_named = equals_name},
+							.data = .{.push_named = Name.from(equals_name) catch unreachable},
 							.root = tk,
 						},
 						IRNode {
@@ -195,16 +202,13 @@ pub fn analyze(ast: ASTNode, w: ObjWriter(IRNode), ctx: Context) (AnalyzerError 
 	switch (ast) {
 		.basic => |tk| {
 			switch (tk.type) {
-				.name_operator => {
-					const own_name = try ctx.alloc.dupe(u8, tk.text);
-					errdefer ctx.alloc.free(own_name);
-					try w.write(.init(tk, .{.push_named = own_name}));
-					try w.write(.init(tk, .{.call = {}}));
-				},
-				.name_regular => {
-					const own_name = try ctx.alloc.dupe(u8, tk.text);
-					errdefer ctx.alloc.free(own_name);
-					try w.write(.init(tk, .{.push_named = own_name}));
+				.name_regular, .name_operator => {
+					var name = try parseName(ctx.errs, tk);
+					name.text = try ctx.alloc.dupe(u8, name.text);
+					errdefer ctx.alloc.free(name.text);
+
+					try w.write(.init(tk, .{.push_named = name}));
+					if (tk.type == .name_operator) try w.write(.init(tk, .{.call = {}}));
 				},
 				.number => {
 					const parsed = std.fmt.parseFloat(f64, tk.text) catch |err| {
@@ -322,8 +326,8 @@ fn print_m(matches: []const MatchCheckNode) void {
 	for (matches, 0..) |m, i| {
 		if (i > 0) std.debug.print(" ", .{});
 		if (m.name) |n| {
-			if (n.len == 0) std.debug.print("\x1b[32;2m_\x1b[0m", .{})
-			else std.debug.print("\x1b[32m{s}\x1b[0m", .{n});
+			if (n.text.len == 0) std.debug.print("\x1b[32;2m_\x1b[0m", .{})
+			else std.debug.print("\x1b[32m{f}\x1b[0m", .{n});
 		}
 		switch (m.check) {
 			.none => {
@@ -347,9 +351,10 @@ pub fn print_ir(nodes: []const IRNode) void {
 	for (nodes, 0..) |node, i| {
 		if (i > 0) std.debug.print(" ", .{});
 		switch (node.data) {
-			.push_named => |name| std.debug.print("\x1b[34m{s}\x1b[0m", .{name}),
+			.push_named => |name| std.debug.print("\x1b[34m{f}\x1b[0m", .{name}),
 			.push => |v| std.debug.print("\x1b[33m{f}\x1b[0m", .{v}),
 			.call => std.debug.print("!", .{}),
+			.tail_call => std.debug.print("! \x1b[2m(tail call)\x1b[0m", .{}),
 			.match => |cases| {
 				std.debug.print("\x1b[1m(\x1b[0m", .{});
 				for (cases, 0..) |case, case_i| {
@@ -368,9 +373,15 @@ pub fn print_ir(nodes: []const IRNode) void {
 			},
 			.pop => std.debug.print("pop", .{}),
 			.push_own_func => std.debug.print("@", .{}),
-			.tail_call => std.debug.print("! \x1b[2m(tail call)\x1b[0m", .{}),
 			.directive => |d| std.debug.print("#{s}", .{@tagName(d)}),
 			//else => std.debug.print("<unsupported>: {}", .{node}),
 		}
 	}
+}
+
+fn parseName(errs: *ErrList, tk: Token) AnalyzerError!Name {
+	return Name.from(tk.text) catch |err| {
+		errs.pushError(.err, tk.position, "Invalid name '{s}': {s}", .{tk.text, @errorName(err)});
+		return AnalyzerError.AnalyzerError;
+	};
 }

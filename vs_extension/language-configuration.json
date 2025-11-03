@@ -6,7 +6,7 @@
 	],
 	"comments": {
 		"lineComment": "--",
-		"blockComment": ["--begin", "end--"]
+		"blockComment": ["--(", ")--"]
 	},
 	"indentationRules": {
 		// "increaseIndentPattern": ".*[(\\[{:]$",

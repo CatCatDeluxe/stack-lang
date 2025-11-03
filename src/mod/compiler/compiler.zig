@@ -2,7 +2,7 @@ const std = @import("std");
 const IRNode = @import("../ir/analyzer.zig").IRNode;
 const ObjWriter = @import("../utils/o_writer.zig").ObjWriter;
 const ErrorList = @import("../error_list.zig");
-const NameList = @import("name_list.zig");
+const NameList = @import("./name_list.zig");
 const Constants = @import("../cross/constants.zig");
 const Name = @import("../text/name.zig");
 
@@ -94,9 +94,7 @@ fn compileIn(
 			else => std.debug.panic("Invalid variant type for 'push': {} ({f} in {any})",
 				.{std.meta.activeTag(variant), variant, ir.root.position}),
 		},
-		.push_named => |in_name| {
-			const name = parseName(in_name, ir.root.position, opts.errors) catch return;
-
+		.push_named => |name| {
 			if (scope.locals.get(name)) |index| {
 				// Use a local
 				try func.add(.init(.push_local, ir.root.position, index));
@@ -114,8 +112,8 @@ fn compileIn(
 				try func.add(.init(.push_global, ir.root.position, global_id));
 			} else {
 				opts.errors.pushError(.err, ir.root.position,
-					"Cannot find any local, capture, or global named '{s}' in this scope",
-					.{in_name});
+					"Cannot find any local, capture, or global named '{f}' in this scope",
+					.{name});
 			}
 		},
 		.match => |cases| {
@@ -153,8 +151,7 @@ fn compileIn(
 					const check = checks[index];
 					var add_pop = true;
 
-					if (check.name) |in_name| {
-						const name = try parseName(in_name, check.root.position, opts.errors);
+					if (check.name) |name| {
 						if (check_name_list.get(name) == null) {
 							// new name introduced -- add local
 							if (scope.locals.names.items.len == std.math.maxInt(u8)) {
@@ -269,11 +266,4 @@ pub fn compile(nodes: []const IRNode, opts: CompileOptions) (Error || Name.Error
 		try compileFunc(ir, opts, &func);
 	}
 	return try func.finish();
-}
-
-fn parseName(name: []const u8, pos: anytype, errs: *ErrorList) !Name {
-	return Name.from(name) catch |err| {
-		errs.pushError(.err, pos, "Invalid name: {s}: {s}", .{name, @errorName(err)});
-		return err;
-	};
 }

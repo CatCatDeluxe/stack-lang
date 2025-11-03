@@ -63,8 +63,11 @@
 				{
 					"name": "keyword.operator.logical",
 					"match": "[|:]"
+				},
+				{
+					"name": "keyword.control",
+					"match": "#breakpoint"
 				}
-
 			]
 		}
 	}

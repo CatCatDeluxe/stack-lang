@@ -2,11 +2,13 @@ const std = @import("std");
 const Token = @import("../parser/token.zig");
 const Variant = @import("../cross/variant.zig").Variant;
 const Directive = @import("../cross/directive.zig").Directive;
+const Name = @import("../text/name.zig");
 
 pub const MatchCheckNode = struct {
 	/// The name of the match node. Empty if it should not bind to any name.
 	root: Token,
-	name: ?[]u8,
+	/// The name. The text is owned by the node.
+	name: ?Name,
 	check: union(enum) {
 		none: void,
 		/// Runs some code to check if the value is matched
@@ -16,7 +18,7 @@ pub const MatchCheckNode = struct {
 	},
 
 	pub fn deinit(self: MatchCheckNode, alloc: std.mem.Allocator) void {
-		if (self.name) |n| alloc.free(n);
+		if (self.name) |n| alloc.free(n.text);
 		switch (self.check) {
 			.none => {},
 			.regular => |nodes| {
@@ -35,7 +37,7 @@ pub const MatchCheckNode = struct {
 pub const IRNode = struct {
 	const Data = union(enum) {
 		/// Pushes some named value. The string is owned by the node, but this may change in the future.
-		push_named: []u8,
+		push_named: Name,
 		/// Pushes a variant. The variant is not owned by any environment, and
 		/// should not be of any ref-counted type.
 		push: Variant,
@@ -76,7 +78,7 @@ pub const IRNode = struct {
 
 	pub fn deinit(self: IRNode, alloc: std.mem.Allocator) void {
 		switch (self.data) {
-			.push_named => |name| alloc.free(name),
+			.push_named => |name| alloc.free(name.text),
 			.push => |v| v.dec(alloc),
 			.match => |cases| {
 				for (cases) |case| deinitCase(case, alloc);
