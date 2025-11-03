@@ -279,16 +279,78 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		},
 		.tail_call => {
 			const function = self.topStack().pop() orelse return error.StackEmpty;
-			// note: `frame` pointer is now invalid.
-			var oldFrame = self.frames.pop() orelse return error.StackUnderflow;
-			defer oldFrame.deinit(self.alloc);
+			errdefer function.dec(self.alloc);
+
 			switch (function) {
-				.function_ref, .function_instance => {
-					const ptr = try self.frames.addOne(self.alloc); errdefer _ = self.frames.pop();
-					ptr.* = try self.frameFrom(function);
+				.function_ref => |id| {
+					const func = self.constants.functions.items[id];
+
+					if (frame.captures) |captures| {
+						if (captures.dec(self.alloc)) |slice| {
+							for (slice) |v| v.dec(self.alloc);
+							self.alloc.free(slice);
+						}
+					}
+
+					for (frame.locals.items) |v| v.dec(self.alloc);
+					for (frame.stack_backups.items) |vs| {
+						for (vs) |v| v.dec(self.alloc);
+						self.alloc.free(vs);
+					}
+
+					frame.local_counts.items.len = 0;
+					frame.locals.items.len = 0;
+					frame.stack_backups.items.len = 0;
+
+					frame.* = .{
+						.captures = null,
+						.id = id,
+						.code = func.code,
+						.local_counts = frame.local_counts,
+						.locals = frame.locals,
+						.stack_backups = frame.stack_backups,
+						.position = 0,
+					};
+				},
+				.function_instance => |data| {
+					const func = self.constants.functions.items[data.id];
+
+					// if the captures are the same, we can skip incrementing and decrementing
+					if (data.captures != frame.captures) {
+						_ = data.captures.inc();
+						if (frame.captures) |captures| {
+							if (captures.dec(self.alloc)) |slice| {
+								for (slice) |v| v.dec(self.alloc);
+								self.alloc.free(slice);
+							}
+						}
+					}
+
+					for (frame.locals.items) |v| v.dec(self.alloc);
+					for (frame.stack_backups.items) |vs| {
+						for (vs) |v| v.dec(self.alloc);
+						self.alloc.free(vs);
+					}
+
+					frame.local_counts.items.len = 0;
+					frame.locals.items.len = 0;
+					frame.stack_backups.items.len = 0;
+
+					frame.* = .{
+						.captures = data.captures,
+						.id = data.id,
+						.code = func.code,
+						.local_counts = frame.local_counts,
+						.locals = frame.locals,
+						.stack_backups = frame.stack_backups,
+						.position = 0,
+					};
 				},
 				.builtin => |builtin| {
+					frame.deinit(self.alloc);
+					self.frames.items.len -= 1;
 					try builtin(self);
+					return true;
 				},
 				else => return error.NotFunction,
 			}
@@ -309,6 +371,8 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		},
 		// This instruction does a lot. See the full details in Instruction.Data.branch_check_begin.
 		.branch_check_begin => |params| {
+			// TODO: optimize allocating the stack backup
+
 			const stack = self.topStack();
 			if (stack.items.len < params.n_locals) {
 				if (params.jump == 0) return InterpreterError.MatchFailed;
