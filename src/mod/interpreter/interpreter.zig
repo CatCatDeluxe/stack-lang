@@ -19,7 +19,7 @@ pub const InterpreterError = error {
 };
 
 /// Stores the context for a stack frame.
-const Frame = struct {
+pub const Frame = struct {
 	id: ?Constants.ID,
 	/// The code to execute.
 	code: []const Instruction,
@@ -145,6 +145,16 @@ pub inline fn topStack(self: @This()) *Stack {
 	return &self.stacks.items[self.stacks.items.len - 1];
 }
 
+/// Gets the filename of the specified frame. May return null if the frame
+/// does not originate from a function with a filename.
+pub fn getFilename(self: @This(), frame: Frame) ?[]const u8 {
+	if (frame.id) |id| {
+		const f = self.constants.functions.items[id];
+		if (f.filename.len > 0) return f.filename;
+	}
+	return null;
+}
+
 /// Creates a new stack frame based on the provided variant, which must be
 /// either a function_ref or function_instance.
 /// Panics if `func` is not a function type.
@@ -207,12 +217,13 @@ pub fn skip(self: *@This()) void {
 /// state as long as the returned error is not an OOM error.
 pub inline fn step(self: *@This()) (InterpreterError || std.mem.Allocator.Error)!bool {
 	if (!self.checkExit()) return false;
-	try self.stepAssumeNext();
+	_ = try self.stepAssumeNext();
 	return true;
 }
 
 /// Does the same as `step`, but assumes there is a next instruction to execute.
-pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Error)!void {
+/// Returns whether the call stack changed.
+pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Error)!bool {
 	const frame = self.topFrame();
 	const current = frame.code[frame.position];
 	switch (current.data) {
@@ -258,7 +269,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 					frame.position += 1;
 					const ptr = try self.frames.addOne(self.alloc); errdefer _ = self.frames.pop();
 					ptr.* = try self.frameFrom(function);
-					return;
+					return true;
 				},
 				.builtin => |builtin| {
 					try builtin(self);
@@ -281,6 +292,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 				},
 				else => return error.NotFunction,
 			}
+			return true;
 		},
 		.pop => |n| {
 			const stack = self.topStack();
@@ -293,7 +305,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		.jump => |offs| {
 			if (offs > 0) frame.position += @intCast(offs)
 			else frame.position -= @intCast(-offs);
-			return;
+			return false;
 		},
 		// This instruction does a lot. See the full details in Instruction.Data.branch_check_begin.
 		.branch_check_begin => |params| {
@@ -302,7 +314,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 				if (params.jump == 0) return InterpreterError.MatchFailed;
 				frame.position += params.jump;
 				// Return without incrementing the position any more
-				return;
+				return false;
 			}
 			// This instruction executes the imaginary `push_local_count`:
 			try frame.pushLocalCount(self.alloc);
@@ -332,7 +344,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 				errdefer for (backup) |v| v.dec(self.alloc);
 				defer self.alloc.free(backup);
 				try self.topStack().appendSlice(self.alloc, backup);
-				return;
+				return false;
 			}
 		},
 		.pop_local_count => {
@@ -393,4 +405,5 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 	}
 
 	frame.position += 1;
+	return false;
 }

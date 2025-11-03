@@ -52,6 +52,12 @@ pub fn main() !void {
 
 			nostd: bool,
 			debug: bool,
+			debug_on_fail: bool,
+
+			pub const switches = .{
+				.debug = 'd',
+				.debug_on_fail = 'D',
+			};
 		},
 		.{});
 
@@ -146,27 +152,68 @@ pub fn main() !void {
 		return;
 	}
 
+	// Print all errors accumulated over the compilation process
+	try errors.printTo(&stderr.interface, &files);
+	errors.clear();
+	errors.current_step = "runtime";
+
+	// Run the program
 	var env = try sl.Env.init(alloc, &constants);
 	defer env.deinit();
 
 	try env.call(constants.get(main_func_constant).*);
 
 	var dbg_stdin = std.fs.File.stdin().reader(staticBuffer(2048));
-	try dbg.debug(.{
-		.constants = &constants,
-		.env = &env,
-		.files = &files,
-		.in = &dbg_stdin.interface,
-		.out = &stderr.interface,
-	});
+
+	if (args.debug) {
+		try dbg.debug(.{
+			.constants = &constants,
+			.env = &env,
+			.files = &files,
+			.in = &dbg_stdin.interface,
+			.out = &stderr.interface,
+		});
+	}
+
+	execute: while (true) {
+		if (env.nextInstruction() == null) break;
+		const frame = env.topFrame();
+		while (frame.position < frame.code.len) {
+			const stack_changed = env.stepAssumeNext() catch |err| {
+				errors.current_filename = env.getFilename(env.topFrame().*) orelse "<unknown>";
+				const i_pos =
+					if (frame.position < frame.code.len) frame.code[frame.position].position
+					else @TypeOf(frame.code[0].position) {.line = 0, .col = 0, .position = 0};
+
+				errors.pushError(.err, i_pos, "{s}", .{@errorName(err)});
+				try errors.printTo(&stderr.interface, &files);
+				try stderr.interface.flush();
+				errors.clear();
+
+				if (args.debug_on_fail) {
+					try stderr.interface.print("\x1b[2;3mEntering debugger\x1b[0m\n", .{});
+					try dbg.debug(.{
+						.constants = &constants,
+						.env = &env,
+						.files = &files,
+						.in = &dbg_stdin.interface,
+						.out = &stderr.interface,
+					});
+				}
+
+				break :execute;
+			};
+			if (stack_changed) break;
+		}
+	}
 
 	if (env.stacks.items.len < 0) {
 		errors.pushError(.err, .{.line = 0, .col = 0, .pos = 0}, "More than 1 stack on exit", .{});
 	}
 
-	for (env.stacks.items[env.stacks.items.len - 1].items, 0..) |val, i| {
-		if (i > 0) std.debug.print(", ", .{});
-		std.debug.print("{f}", .{val.colorize()});
-	}
-	std.debug.print("\n", .{});
+	//for (env.stacks.items[env.stacks.items.len - 1].items, 0..) |val, i| {
+		//if (i > 0) std.debug.print(", ", .{});
+		//std.debug.print("{f}", .{val.colorize()});
+	//}
+	//std.debug.print("\n", .{});
 }

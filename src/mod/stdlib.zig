@@ -42,6 +42,27 @@ pub const stdlib = struct {
 		e.topStack().items.len -= 2;
 		e.topStack().appendAssumeCapacity(res);
 	}
+
+	pub fn getch(e: *sl.Env) !void {
+		var buf: [1]u8 = undefined;
+		var r = std.fs.File.stdin().reader(&.{});
+		// can't return error.ReadFailed in the interpreter
+		if ((r.read(&buf) catch return error.OutOfMemory) < 1) return error.OutOfMemory;
+		try e.topStack().append(e.alloc, .fromPrimitive(buf[0]));
+	}
+
+	pub fn putch(e: *sl.Env) !void {
+		const args = try require(e, 1);
+		switch (args[0]) {
+			.num => |n| {
+				_ = std.fs.File.stdout().write(&.{std.math.lossyCast(u8, n)}) catch {};
+				_ = e.topStack().pop();
+				return;
+			},
+			else => {},
+		}
+		return error.TypeError;
+	}
 };
 
 /// Adds the functions declarations from `Lib` to `to`.

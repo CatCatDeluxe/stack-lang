@@ -12,7 +12,7 @@ const StepExit = enum {
 fn runStep(c: Context) !StepExit {
 	const next_instruction = c.env.nextInstruction() orelse return .at_end;
 
-	c.env.stepAssumeNext() catch |err| switch (err) {
+	_ = c.env.stepAssumeNext() catch |err| switch (err) {
 		error.Breakpoint => return .breakpoint,
 		else => {
 			var temp = sl.ErrorList.init(c.env.alloc);
