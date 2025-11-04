@@ -6,6 +6,7 @@ const Instruction = @import("../compiler/instruction.zig");
 const Constants = @import("../cross/constants.zig");
 const Variant = @import("../cross/variant.zig").Variant;
 const Rc = @import("../cross/variant.zig").Rc;
+const BufArrayList = @import("utils/buf_array_list.zig").BufArrayList;
 
 pub const InterpreterError = error {
 	StackEmpty,
@@ -33,46 +34,40 @@ pub const Frame = struct {
 	/// When the `pop_local_count` instruction is executed, the top of this
 	/// array is popped and the number of locals is reduced to that number.
 	/// This is also manipulated during match branches.
-	local_counts: std.ArrayList(u16),
-	/// Stores backups of the stack, for retrying branches.
-	stack_backups: std.ArrayList([]Variant),
+	local_counts: BufArrayList(u16, 2),
+
+	n_stack_backups: u16,
 
 	/// Frees memory and decrements Rc'd variants.
 	pub fn deinit(self: *Frame, alloc: std.mem.Allocator) void {
-		for (self.locals.items) |v| {
+		for (self.locals.items) |*v| {
 			v.dec(alloc);
 		}
 		self.locals.deinit(alloc);
 		self.local_counts.deinit(alloc);
 
-		for (self.stack_backups.items) |backups| {
-			for (backups) |v| v.dec(alloc);
-			alloc.free(backups);
+		if (self.captures) |captures| {
+			std.debug.print("({any}, rc -> {})", .{captures.val, captures.refcount - 1});
+			if (captures.dec(alloc)) |c| {
+				for (c) |v| v.dec(alloc);
+				alloc.free(c);
+			}
 		}
-		self.stack_backups.deinit(alloc);
-
-		//if (self.captures) |captures| {
-			//std.debug.print("({any}, rc -> {})", .{captures.val, captures.refcount - 1});
-			//if (captures.dec(alloc)) |c| {
-				//for (c) |v| v.dec(alloc);
-				//alloc.free(c);
-			//}
-		//}
 	}
 
 	fn pushLocalCount(self: *@This(), alloc: std.mem.Allocator) !void {
 		const n: u16 = @intCast(self.locals.items.len);
-		try self.local_counts.append(alloc, n);
+		try self.local_counts.add(alloc, n);
 		//std.debug.print("Local counts {any}\n", .{self.local_counts.items});
 	}
 
-	/// Loads the local count from the top of `local_counts`. Does not pop.
+	/// Loads the local count from the top of `local_counts`. Does not pop the local count.
 	/// Removed locals are properly freed.
 	fn loadLocalCount(self: *@This(), alloc: std.mem.Allocator) void {
-		//std.debug.print("Local counts: {any}\n", .{self.local_counts.items});
-		const count = self.local_counts.items[self.local_counts.items.len - 1];
-		if (count > self.locals.items.len) std.debug.panic(
-			"Cannot load local count greater than current local count", .{});
+		const count = self.local_counts.last().*;
+		if (count > self.locals.items.len) {
+			std.debug.panic("Cannot load local count greater than current local count", .{});
+		}
 
 		for (self.locals.items[count..]) |*v| v.dec(alloc);
 		self.locals.items.len = count;
@@ -90,6 +85,8 @@ constants: *const Constants,
 stacks: std.ArrayList(Stack),
 /// The call stack.
 frames: std.ArrayList(Frame),
+/// The stack backups created by match branches.
+stack_backups: std.ArrayList(BufArrayList(Variant, 4)) = .empty,
 
 pub fn init(alloc: std.mem.Allocator, constants: *const Constants) !@This() {
 	var res = @This() {
@@ -112,6 +109,7 @@ pub fn deinit(self: *@This()) void {
 	self.stacks.deinit(self.alloc);
 	for (self.frames.items) |*f| f.deinit(self.alloc);
 	self.frames.deinit(self.alloc);
+	self.stack_backups.deinit(self.alloc);
 }
 
 /// Adds the variant onto the stack frame. If it refers to a builtin function,
@@ -167,7 +165,7 @@ inline fn frameFrom(self: @This(), func: Variant) std.mem.Allocator.Error!Frame 
 				.captures = null,
 				.locals = .empty,
 				.local_counts = .empty,
-				.stack_backups = .empty,
+				.n_stack_backups = 0,
 				.position = 0,
 			};
 		},
@@ -178,11 +176,21 @@ inline fn frameFrom(self: @This(), func: Variant) std.mem.Allocator.Error!Frame 
 				.captures = inst.captures.inc(),
 				.locals = try .initCapacity(self.alloc, 2),
 				.local_counts = .empty,
-				.stack_backups = .empty,
+				.n_stack_backups = 0,
 				.position = 0,
 			};
 		},
 		else => @panic("Invalid variant type to create frame"),
+	}
+}
+
+/// Does the proper cleanup after exiting frame `f`. Does not deinit the frame
+/// itself.
+fn exitFrame(self: *@This(), f: Frame) void {
+	for (0..f.n_stack_backups) |i| {
+		const bak = &self.stack_backups.items[self.stack_backups.items.len - 1 - i];
+		for (0..bak.len) |j| bak.get(j).dec(self.alloc);
+		bak.deinit(self.alloc);
 	}
 }
 
@@ -193,6 +201,7 @@ pub fn checkExit(self: *@This()) bool {
 		if (self.frames.items.len == 0) return false;
 		const frame = self.topFrame();
 		if (frame.position < frame.code.len) break;
+		self.exitFrame(frame.*);
 		frame.deinit(self.alloc);
 		_ = self.frames.pop();
 	}
@@ -261,7 +270,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			};
 			self.topStack().appendAssumeCapacity(new);
 		},
-		.call => {
+		.call, => {
 			const function = self.topStack().pop() orelse return error.StackEmpty;
 			defer function.dec(self.alloc);
 			switch (function) {
@@ -285,6 +294,8 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 				.function_ref => |id| {
 					const func = self.constants.functions.items[id];
 
+					self.exitFrame(frame.*);
+
 					if (frame.captures) |captures| {
 						if (captures.dec(self.alloc)) |slice| {
 							for (slice) |v| v.dec(self.alloc);
@@ -293,14 +304,8 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 					}
 
 					for (frame.locals.items) |v| v.dec(self.alloc);
-					for (frame.stack_backups.items) |vs| {
-						for (vs) |v| v.dec(self.alloc);
-						self.alloc.free(vs);
-					}
-
-					frame.local_counts.items.len = 0;
+					frame.local_counts.len = 0;
 					frame.locals.items.len = 0;
-					frame.stack_backups.items.len = 0;
 
 					frame.* = .{
 						.captures = null,
@@ -308,12 +313,13 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 						.code = func.code,
 						.local_counts = frame.local_counts,
 						.locals = frame.locals,
-						.stack_backups = frame.stack_backups,
+						.n_stack_backups = 0,
 						.position = 0,
 					};
 				},
 				.function_instance => |data| {
 					const func = self.constants.functions.items[data.id];
+					self.exitFrame(frame.*);
 
 					// if the captures are the same, we can skip incrementing and decrementing
 					if (data.captures != frame.captures) {
@@ -327,14 +333,8 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 					}
 
 					for (frame.locals.items) |v| v.dec(self.alloc);
-					for (frame.stack_backups.items) |vs| {
-						for (vs) |v| v.dec(self.alloc);
-						self.alloc.free(vs);
-					}
-
-					frame.local_counts.items.len = 0;
+					frame.local_counts.len = 0;
 					frame.locals.items.len = 0;
-					frame.stack_backups.items.len = 0;
 
 					frame.* = .{
 						.captures = data.captures,
@@ -342,11 +342,12 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 						.code = func.code,
 						.local_counts = frame.local_counts,
 						.locals = frame.locals,
-						.stack_backups = frame.stack_backups,
+						.n_stack_backups = 0,
 						.position = 0,
 					};
 				},
 				.builtin => |builtin| {
+					self.exitFrame(frame.*);
 					frame.deinit(self.alloc);
 					self.frames.items.len -= 1;
 					try builtin(self);
@@ -371,8 +372,6 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		},
 		// This instruction does a lot. See the full details in Instruction.Data.branch_check_begin.
 		.branch_check_begin => |params| {
-			// TODO: optimize allocating the stack backup
-
 			const stack = self.topStack();
 			if (stack.items.len < params.n_locals) {
 				if (params.jump == 0) return InterpreterError.MatchFailed;
@@ -386,10 +385,12 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			const slice = stack.items[(stack.items.len - params.n_locals)..stack.items.len];
 
 			// It also stores a backup of the pushed values
-			const backup = try frame.stack_backups.addOne(self.alloc);
-			errdefer _ = frame.stack_backups.deinit(self.alloc);
+			const backup = try self.stack_backups.addOne(self.alloc);
+			errdefer self.stack_backups.pop().?.deinit(self.alloc);
+
 			for (slice) |v| _ = v.inc();
-			backup.* = try self.alloc.dupe(Variant, slice);
+			backup.* = try .from(self.alloc, slice);
+			frame.n_stack_backups += 1;
 		},
 		.fail_check_if_false => |offs| {
 			var truthy = false;
@@ -403,11 +404,17 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 				frame.position += offs;
 				// Also retrieve the old local count
 				frame.loadLocalCount(self.alloc);
+
 				// Also load a backup of the stack from before the branch check
-				const backup = frame.stack_backups.pop().?;
-				errdefer for (backup) |v| v.dec(self.alloc);
-				defer self.alloc.free(backup);
-				try self.topStack().appendSlice(self.alloc, backup);
+				frame.n_stack_backups -= 1;
+				var backup = self.stack_backups.pop().?;
+				errdefer for (0..backup.len) |i| backup.get(i).dec(self.alloc);
+				defer backup.deinit(self.alloc);
+
+				// actually add the items to the stack
+				for (try self.topStack().addManyAsSlice(self.alloc, backup.len), 0..) |*item, i| {
+					item.* = backup.get(i).*;
+				}
 				return false;
 			}
 		},
