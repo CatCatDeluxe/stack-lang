@@ -34,6 +34,19 @@ pub const Frame = struct {
 	/// When the `pop_local_count` instruction is executed, the top of this
 	/// array is popped and the number of locals is reduced to that number.
 	/// This is also manipulated during match branches.
+	/// This only increases past 1 in nested match branches
+	/// (for example: `((x= [match nesting occurs here]): ) x: ...`)
+	/// ```
+	/// (
+	///   (
+	///     (
+	///       x= -- nesting occurs here
+	///     ): 1
+	///     | 0
+	///   ) x:
+	///   x
+	/// )
+	/// ```
 	local_counts: BufArrayList(u16, 2),
 
 	n_stack_backups: u16,
@@ -76,6 +89,37 @@ pub const Frame = struct {
 
 const Stack = std.ArrayList(Variant);
 
+const StackBackup = struct {
+	items: BufArrayList(Variant, 4),
+	/// The stack length, including the stored items.
+	len_without: usize,
+
+	fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+		for (0..self.items.len) |i| self.items.get(i).dec(alloc);
+		self.items.deinit(alloc);
+	}
+};
+
+fn createStackBackup(self: @This(), nitems: usize) !StackBackup {
+	const stack = self.topStack();
+	const slice = stack.items[stack.items.len - nitems..];
+	return .{
+		.items = try .from(self.alloc, slice),
+		.len_without = stack.items.len - nitems,
+	};
+}
+
+fn loadStackBackup(self: *@This(), backup: *StackBackup) !void {
+	const stack = self.topStack();
+	if (stack.items.len < backup.len_without) @panic("Cannot load stack state backup: not enough items");
+	for (stack.items[backup.len_without..]) |v_delete| v_delete.dec(self.alloc);
+	stack.items.len = backup.len_without;
+
+	for (try stack.addManyAsSlice(self.alloc, backup.items.len), 0..) |*new_val, i| {
+		new_val.* = backup.items.get(i).*;
+	}
+}
+
 /// The working allocator while executing.
 alloc: std.mem.Allocator,
 /// The constants for the environment.
@@ -85,8 +129,9 @@ constants: *const Constants,
 stacks: std.ArrayList(Stack),
 /// The call stack.
 frames: std.ArrayList(Frame),
-/// The stack backups created by match branches.
-stack_backups: std.ArrayList(BufArrayList(Variant, 4)) = .empty,
+/// The stack backups created by match branches. When adding or removing from
+/// this list, make sure to update the current frame's count of stack backups!
+stack_backups: std.ArrayList(StackBackup) = .empty,
 
 pub fn init(alloc: std.mem.Allocator, constants: *const Constants) !@This() {
 	var res = @This() {
@@ -188,10 +233,10 @@ inline fn frameFrom(self: @This(), func: Variant) std.mem.Allocator.Error!Frame 
 /// itself.
 fn exitFrame(self: *@This(), f: Frame) void {
 	for (0..f.n_stack_backups) |i| {
-		const bak = &self.stack_backups.items[self.stack_backups.items.len - 1 - i];
-		for (0..bak.len) |j| bak.get(j).dec(self.alloc);
+		var bak = &self.stack_backups.items[self.stack_backups.items.len - 1 - i];
 		bak.deinit(self.alloc);
 	}
+	self.stack_backups.items.len -= f.n_stack_backups;
 }
 
 /// While the top stack frame is past the last instruction, removes it from the
@@ -382,14 +427,11 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			// This instruction executes the imaginary `push_local_count`:
 			try frame.pushLocalCount(self.alloc);
 			errdefer _ = frame.local_counts.pop();
-			const slice = stack.items[(stack.items.len - params.n_locals)..stack.items.len];
 
 			// It also stores a backup of the pushed values
 			const backup = try self.stack_backups.addOne(self.alloc);
-			errdefer self.stack_backups.pop().?.deinit(self.alloc);
-
-			for (slice) |v| _ = v.inc();
-			backup.* = try .from(self.alloc, slice);
+			errdefer _ = self.stack_backups.pop();
+			backup.* = try self.createStackBackup(params.n_locals);
 			frame.n_stack_backups += 1;
 		},
 		.fail_check_if_false => |offs| {
@@ -408,13 +450,8 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 				// Also load a backup of the stack from before the branch check
 				frame.n_stack_backups -= 1;
 				var backup = self.stack_backups.pop().?;
-				errdefer for (0..backup.len) |i| backup.get(i).dec(self.alloc);
-				defer backup.deinit(self.alloc);
-
-				// actually add the items to the stack
-				for (try self.topStack().addManyAsSlice(self.alloc, backup.len), 0..) |*item, i| {
-					item.* = backup.get(i).*;
-				}
+				errdefer backup.deinit(self.alloc);
+				try self.loadStackBackup(&backup);
 				return false;
 			}
 		},
