@@ -163,11 +163,15 @@ const commands = struct {
 
 	pub fn frames(c: Context) !void {
 		for (c.env.frames.items, 0..) |cframe, frame_index| {
-			try c.out.print("  Frame #{}\n", .{frame_index});
+			try c.out.print("Frame #{}\n", .{frame_index});
+
+			for (cframe.locals.items, 0..) |v, i| {
+				try c.out.print("  local \x1b[32;2m#\x1b[0;32m{:0>2}\x1b[0m: {f}\n", .{i, v.colorize()});
+			}
 			for (cframe.code, 0..) |inst, i| {
 				if (i == cframe.position) try c.out.print("\x1b[32;1m", .{})
 					else try c.out.print("\x1b[2m", .{});
-				try c.out.print("    {:0>3}.\x1b[0m {f}\n", .{i, inst});
+				try c.out.print("  {:0>3}.\x1b[0m {f}\n", .{i, inst});
 			}
 		}
 	}
