@@ -54,6 +54,7 @@ pub const Frame = struct {
 	/// Frees memory and decrements Rc'd variants.
 	pub fn deinit(self: *Frame, alloc: std.mem.Allocator) void {
 		for (self.locals.items) |*v| {
+			std.debug.print("Dec local {f}\n\n", .{v});
 			v.dec(alloc);
 		}
 		self.locals.deinit(alloc);
@@ -62,7 +63,7 @@ pub const Frame = struct {
 		if (self.captures) |captures| {
 			std.debug.print("({any}, rc -> {})", .{captures.val, captures.refcount - 1});
 			if (captures.dec(alloc)) |c| {
-				for (c) |v| v.dec(alloc);
+				for (c) |*v| v.dec(alloc);
 				alloc.free(c);
 			}
 		}
@@ -78,11 +79,15 @@ pub const Frame = struct {
 	/// Removed locals are properly freed.
 	fn loadLocalCount(self: *@This(), alloc: std.mem.Allocator) void {
 		const count = self.local_counts.last().*;
+		std.debug.print("Loaded local count: {} -> {}\n\n", .{self.locals.items.len, count});
 		if (count > self.locals.items.len) {
 			std.debug.panic("Cannot load local count greater than current local count", .{});
 		}
 
-		for (self.locals.items[count..]) |*v| v.dec(alloc);
+		for (self.locals.items[count..]) |*v| {
+			std.debug.print("Dec local {f}\n\n", .{v.colorize()});
+			v.dec(alloc);
+		}
 		self.locals.items.len = count;
 	}
 };
@@ -112,7 +117,7 @@ fn createStackBackup(self: @This(), nitems: usize) !StackBackup {
 fn loadStackBackup(self: *@This(), backup: *StackBackup) !void {
 	const stack = self.topStack();
 	if (stack.items.len < backup.len_without) @panic("Cannot load stack state backup: not enough items");
-	for (stack.items[backup.len_without..]) |v_delete| v_delete.dec(self.alloc);
+	for (stack.items[backup.len_without..]) |*v_delete| v_delete.dec(self.alloc);
 	stack.items.len = backup.len_without;
 
 	for (try stack.addManyAsSlice(self.alloc, backup.items.len), 0..) |*new_val, i| {
@@ -309,6 +314,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 
 			const new: Variant = b: switch (func_ref) {
 				.function_ref => {
+					for (captures) |*v| v.inc();
 					break :b try func_ref.withCaptures(self.alloc, captures);
 				},
 				else => return error.NotFunction,
@@ -333,6 +339,8 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		},
 		.tail_call => {
 			const function = self.topStack().pop() orelse return error.StackEmpty;
+			// When not returning an error, the memory in the variant is
+			// handled in more specific ways and this is not needed.
 			errdefer function.dec(self.alloc);
 
 			switch (function) {
@@ -343,12 +351,12 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 
 					if (frame.captures) |captures| {
 						if (captures.dec(self.alloc)) |slice| {
-							for (slice) |v| v.dec(self.alloc);
+							for (slice) |*v| v.dec(self.alloc);
 							self.alloc.free(slice);
 						}
 					}
 
-					for (frame.locals.items) |v| v.dec(self.alloc);
+					for (frame.locals.items) |*v| v.dec(self.alloc);
 					frame.local_counts.len = 0;
 					frame.locals.items.len = 0;
 
@@ -371,13 +379,13 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 						_ = data.captures.inc();
 						if (frame.captures) |captures| {
 							if (captures.dec(self.alloc)) |slice| {
-								for (slice) |v| v.dec(self.alloc);
+								for (slice) |*v| v.dec(self.alloc);
 								self.alloc.free(slice);
 							}
 						}
 					}
 
-					for (frame.locals.items) |v| v.dec(self.alloc);
+					for (frame.locals.items) |*v| v.dec(self.alloc);
 					frame.local_counts.len = 0;
 					frame.locals.items.len = 0;
 
@@ -469,12 +477,12 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			const slice: []Variant = old.items[old.items.len - ncopy..old.items.len];
 
 			new.* = .fromOwnedSlice(try self.alloc.dupe(Variant, slice));
-			for (new.items) |v| _ = v.inc();
+			for (new.items) |*v| _ = v.inc();
 		},
 		.pop_temp_stack => |ncopy| {
 			var old = self.stacks.pop() orelse return error.StackStackEmpty;
 			defer {
-				for (old.items) |v| v.dec(self.alloc);
+				for (old.items) |*v| v.dec(self.alloc);
 				old.deinit(self.alloc);
 			}
 
