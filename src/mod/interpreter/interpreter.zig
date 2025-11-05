@@ -314,7 +314,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 
 			const new: Variant = b: switch (func_ref) {
 				.function_ref => {
-					for (captures) |*v| v.inc();
+					for (captures) |*v| _ = v.inc();
 					break :b try func_ref.withCaptures(self.alloc, captures);
 				},
 				else => return error.NotFunction,
