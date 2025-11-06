@@ -67,7 +67,11 @@ pub const Data = union(enum) {
 	branch_check_begin: packed struct {jump: u16, n_locals: u8},
 
 	/// Fails the check if the popped value is falsy, by jumping forward `n`
-	/// instructions to the end of the branch. Pushes the backed-up values from the
+	/// instructions to the end of the branch.
+	/// Both this instruction and `fail_check`, if jumping into a `pop_stack_count`
+	/// instruction, will execute that instruction before restoring the stack backup.
+	/// TODO: remove this feature, and replace all fail_check_if_false's with a jump
+	/// and a `fail_check` instruction.
 	fail_check_if_false: u16,
 
 	/// Removes locals until there is the same amount as when the previous
@@ -92,6 +96,14 @@ pub const Data = union(enum) {
 
 	/// Pops the top two values. Pushes true if they are equal, and false otherwise.
 	test_equal,
+
+	/// Pushes a temp stack count.
+	push_stack_count,
+	/// Pops a temp stack count.
+	pop_stack_count,
+	fail_check: u16,
+	jump_if: u16,
+	jump_unless: u16,
 
 	/// Debugging instruction
 	breakpoint,

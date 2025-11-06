@@ -130,6 +130,8 @@ constants: *const Constants,
 /// The stack of temp stacks. The first element is the main stack.
 /// Items from lower stacks than the top one should never be accessed!
 stacks: std.ArrayList(Stack),
+/// Stores the count of temp stacks.
+stack_counts: std.ArrayList(u16),
 /// The call stack.
 frames: std.ArrayList(Frame),
 /// The stack backups created by match branches. When adding or removing from
@@ -141,6 +143,7 @@ pub fn init(alloc: std.mem.Allocator, constants: *const Constants) !@This() {
 		.alloc = alloc,
 		.constants = constants,
 		.stacks = try .initCapacity(alloc, 2),
+		.stack_counts = .empty,
 		.frames = undefined,
 	};
 	errdefer res.stacks.deinit(alloc);
@@ -158,6 +161,7 @@ pub fn deinit(self: *@This()) void {
 	for (self.frames.items) |*f| f.deinit(self.alloc);
 	self.frames.deinit(self.alloc);
 	self.stack_backups.deinit(self.alloc);
+	self.stack_counts.deinit(self.alloc);
 }
 
 /// Adds the variant onto the stack frame. If it refers to a builtin function,
@@ -189,6 +193,38 @@ pub inline fn topFrame(self: @This()) *Frame {
 /// Utility function. Returns the current temp (or main) stack.
 pub inline fn topStack(self: @This()) *Stack {
 	return &self.stacks.items[self.stacks.items.len - 1];
+}
+
+inline fn popStackCount(self: *@This()) void {
+	const count = self.stack_counts.pop() orelse return;
+	for (self.stacks.items[count..]) |*stack| {
+		for (stack.items) |*v| v.dec(self.alloc);
+		stack.deinit(self.alloc);
+	}
+	self.stacks.items.len = count;
+}
+
+inline fn failCheck(self: *@This(), jump_offs: usize) !void {
+	const frame = self.topFrame();
+
+	if (jump_offs == 0) return InterpreterError.MatchFailed;
+	frame.position += jump_offs;
+
+	// check the next instruction. If it's pop_stack_count, run it before loading the stack backup.
+	// a weird special case, but it makes the bytecode a lot shorter than it otherwise would be.
+	if (frame.position < frame.code.len and frame.code[frame.position].data == .pop_stack_count) {
+		self.popStackCount();
+		frame.position += 1;
+	}
+
+	// Also retrieve the old local count
+	frame.loadLocalCount(self.alloc);
+
+	// Also load a backup of the stack from before the branch check
+	frame.n_stack_backups -= 1;
+	var backup = self.stack_backups.pop().?;
+	errdefer backup.deinit(self.alloc);
+	try self.loadStackBackup(&backup);
 }
 
 /// Gets the filename of the specified frame. May return null if the frame
@@ -441,6 +477,20 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			backup.* = try self.createStackBackup(params.n_locals);
 			frame.n_stack_backups += 1;
 		},
+		.jump_if, .jump_unless => |offs| {
+			var truthy = false;
+			if (self.topStack().pop()) |v| {
+				truthy = v.truthy();
+				v.dec(self.alloc);
+			}
+			if (truthy == (current.data == .jump_if)) {
+				frame.position += offs;
+			}
+		},
+		.fail_check => |offs| {
+			try self.failCheck(offs);
+			return false;
+		},
 		.fail_check_if_false => |offs| {
 			var truthy = false;
 			if (self.topStack().pop()) |v| {
@@ -449,22 +499,19 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			}
 
 			if (!truthy) {
-				if (offs == 0) return InterpreterError.MatchFailed;
-				frame.position += offs;
-				// Also retrieve the old local count
-				frame.loadLocalCount(self.alloc);
-
-				// Also load a backup of the stack from before the branch check
-				frame.n_stack_backups -= 1;
-				var backup = self.stack_backups.pop().?;
-				errdefer backup.deinit(self.alloc);
-				try self.loadStackBackup(&backup);
+				try self.failCheck(offs);
 				return false;
 			}
 		},
 		.pop_local_count => {
 			frame.loadLocalCount(self.alloc);
 			_ = frame.local_counts.pop();
+		},
+		.push_stack_count => {
+			try self.stack_counts.append(self.alloc, @intCast(self.stacks.items.len));
+		},
+		.pop_stack_count => {
+			self.popStackCount();
 		},
 		.push_temp_stack => |ncopy| {
 			// TODO: make sure that it's ok to not increase the variant's reference counts here

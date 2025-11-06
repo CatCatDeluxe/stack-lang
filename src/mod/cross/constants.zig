@@ -82,7 +82,7 @@ pub fn deinit(self: Constants) void {
 pub fn createFunc(self: *Constants, filename: []const u8) CreateFunc {
 	return .{
 		.builder = self,
-		.insts = .empty,
+		.insts = .init(self.alloc),
 		.filename = filename,
 	};
 }
@@ -158,26 +158,26 @@ pub fn getNamed(self: @This(), in_name: Name) ?ID {
 
 pub const CreateFunc = struct {
 	builder: *Constants,
-	insts: std.ArrayList(Instruction),
+	insts: std.array_list.Managed(Instruction),
 	filename: []const u8,
 
 	pub fn add(self: *CreateFunc, i: Instruction) !void {
-		try self.insts.append(self.builder.alloc, i);
+		try self.insts.append(i);
 	}
 
 	/// Adds an instruction and returns its index.
 	pub fn addOne(self: *CreateFunc) !usize {
-		_ = try self.insts.addOne(self.builder.alloc);
+		_ = try self.insts.addOne();
 		return self.insts.items.len - 1;
 	}
 
 	pub fn deinit(self: *CreateFunc) void {
-		self.insts.deinit(self.builder.alloc);
+		self.insts.deinit();
 	}
 
 	pub fn finish(self: *CreateFunc) !ID {
 		return try self.builder.addFunc(.{
-			.code = try self.insts.toOwnedSlice(self.builder.alloc),
+			.code = try self.insts.toOwnedSlice(),
 			.filename = self.filename,
 		});
 	}
