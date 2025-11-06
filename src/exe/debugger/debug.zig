@@ -194,6 +194,7 @@ const commands = struct {
 
 	pub fn @"return"(c: Context) !void {
 		var f = c.env.frames.pop() orelse return;
+		c.env.exitFrame(f);
 		f.deinit(c.env.alloc);
 	}
 

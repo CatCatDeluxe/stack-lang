@@ -234,7 +234,9 @@ inline fn frameFrom(self: @This(), func: Variant) std.mem.Allocator.Error!Frame 
 
 /// Does the proper cleanup after exiting frame `f`. Does not deinit the frame
 /// itself.
-fn exitFrame(self: *@This(), f: Frame) void {
+/// If managing frames manually, this must be called when you make the
+/// interpreter exit a frame!
+pub fn exitFrame(self: *@This(), f: Frame) void {
 	for (0..f.n_stack_backups) |i| {
 		var bak = &self.stack_backups.items[self.stack_backups.items.len - 1 - i];
 		bak.deinit(self.alloc);
