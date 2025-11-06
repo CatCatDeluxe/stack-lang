@@ -114,7 +114,7 @@ const commands = struct {
 
 	/// Similar to `repl`, but automatically runs the code.
 	pub fn rrepl(c: Context, code_p: param.RestOfLine) !void {
-		try repl(c, code_p);
+		try @This().repl(c, code_p);
 		const stack_size = c.env.frames.items.len;
 		while (c.env.frames.items.len >= stack_size) {
 			switch (try runStep(c)) {
@@ -254,55 +254,88 @@ pub const Context = struct {
 	quit: *bool = undefined,
 };
 
+/// Parses and runs a command. Returns the name of the command that was run.
+fn parseAndRunCommand(ctx: Context, s: *sl.text.Scanner) !void {
+	const command_name = s.eatIn(sl.parser.Token.chars_name);
+	_ = s.eatIn(sl.parser.Token.chars_whitespace);
+
+	inline for (comptime std.meta.declarations(commands)) |decl| {
+		const func = @field(commands, decl.name);
+		switch (@typeInfo(@TypeOf(func))) {
+			.@"fn" => {},
+			else => continue,
+		}
+
+		if (std.mem.startsWith(u8, decl.name, command_name)) {
+			// show the name of the called command. Assumes the prompt was
+			try ctx.out.print("\r\x1b[1A\x1b[{}C\x1b[0;2m: {s}\x1b[0m\n", .{s.text.len + 3, decl.name});
+
+			const Args = std.meta.ArgsTuple(@TypeOf(func));
+			var args: Args = undefined;
+			args[0] = ctx;
+
+			// Parse each argument. Error if not found.
+			inline for (std.meta.fields(Args)[1..], 1..) |field, i| {
+				args[i] = parseArg(s, field.type) catch |err| {
+					try ctx.out.print("Formatting error or missing arg: arg {}: {s}", .{i, @errorName(err)});
+					return;
+				};
+			}
+
+			_ = s.eatIn(sl.parser.Token.chars_whitespace);
+			if (s.valid()) {
+				try ctx.out.print("\x1b[2;3munused arguments '{s}'\x1b[0m\n", .{s.text[s.state.position..]});
+			}
+
+			try @call(.auto, func, args);
+			return;
+		}
+	} else {
+		try ctx.out.print("Unknown command '{s}'\n", .{command_name});
+	}
+}
+
+pub fn repl(ctx_in: Context) !void {
+	var ctx = ctx_in;
+	var quit = false;
+	ctx.quit = &quit;
+
+	while (!quit) {
+		try ctx.out.print("> ", .{});
+		try ctx.out.flush();
+		const input = try ctx.in.takeDelimiterExclusive('\n');
+
+		var s = sl.text.Scanner {.text = input};
+		_ = s.eatIn(sl.parser.Token.chars_whitespace);
+
+		if (s.nextIs("help")) {
+			try commands.help(ctx);
+			continue;
+		}
+
+		if (s.nextc() == '#') {
+			s.advance(1);
+			try parseAndRunCommand(ctx, &s);
+			continue;
+		}
+
+		try commands.rrepl(ctx, .{s.text});
+	}
+}
+
 /// User interface for debugging. Blocks until the debugging process is done.
 pub fn debug(ctx_in: Context) !void {
 	var ctx = ctx_in;
 	var quit = false;
 	ctx.quit = &quit;
 
-	mainloop: while (!quit) {
+	while (!quit) {
 		try ctx.out.print("> ", .{});
 		try ctx.out.flush();
 		const input = try ctx.in.takeDelimiterExclusive('\n');
 
 		var s = sl.text.Scanner {.text = input};
-		const command_name = s.eatIn(sl.parser.Token.chars_name);
-		_ = s.eatIn(sl.parser.Token.chars_whitespace);
-
-		inline for (comptime std.meta.declarations(commands)) |decl| {
-			const func = @field(commands, decl.name);
-			switch (@typeInfo(@TypeOf(func))) {
-				.@"fn" => {},
-				else => continue,
-			}
-
-			if (std.mem.startsWith(u8, decl.name, command_name)) {
-				// show the name of the called command
-				try ctx.out.print("\r\x1b[1A\x1b[{}C\x1b[0;2m: {s}\x1b[0m\n", .{input.len + 3, decl.name});
-
-				const Args = std.meta.ArgsTuple(@TypeOf(func));
-				var args: Args = undefined;
-				args.@"0" = ctx;
-
-				// Parse each argument. Error if not found.
-				inline for (std.meta.fields(Args)[1..], 1..) |field, i| {
-					args[i] = parseArg(&s, field.type) catch |err| {
-						try ctx.out.print("Formatting error or missing arg: arg {}: {s}", .{i, @errorName(err)});
-						continue :mainloop;
-					};
-				}
-
-				_ = s.eatIn(sl.parser.Token.chars_whitespace);
-				if (s.valid()) {
-					try ctx.out.print("\x1b[2;3munused arguments '{s}'\x1b[0m\n", .{s.text[s.state.position..]});
-				}
-
-				try @call(.auto, func, args);
-				break;
-			}
-		} else {
-			try ctx.out.print("Unknown command '{s}'\n", .{command_name});
-		}
+		try parseAndRunCommand(ctx, &s);
 	}
 }
 

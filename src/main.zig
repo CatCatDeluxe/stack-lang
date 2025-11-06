@@ -41,7 +41,7 @@ pub fn main() !void {
 					.file = "The file to parse and run."
 				};
 
-				file: []const u8,
+				file: ?[]const u8,
 			},
 
 			show: enum {
@@ -72,13 +72,15 @@ pub fn main() !void {
 	var file_alloc = std.heap.ArenaAllocator.init(alloc); defer file_alloc.deinit();
 	var files = sl.FileCache.init(file_alloc.allocator());
 
-	const main_text = files.open(args.positional.file)
-		catch |err| {
-			std.log.err(
-				"Error: Could not open file '{s}': {s}\n",
-				.{args.positional.file, @errorName(err)});
-			return;
-		};
+	const main_text =
+		if (args.positional.file) |filename|
+			files.open(filename) catch |err| {
+				std.log.err(
+					"Error: Could not open file '{s}': {s}\n",
+					.{filename, @errorName(err)});
+				return;
+			}
+		else "";
 
 	var errors = sl.ErrorList.init(alloc);
 	defer {
@@ -148,7 +150,7 @@ pub fn main() !void {
 	const main_func_constant = try sl.compiler.compile(ir_nodes, .{
 		.constants = &constants,
 		.errors = &errors,
-		.filename = args.positional.file,
+		.filename = args.positional.file orelse "<no file>",
 		.temp_alloc = compiler_temp_alloc.allocator(),
 	});
 
@@ -176,10 +178,21 @@ pub fn main() !void {
 	// Run the program
 	var env = try sl.Env.init(alloc, &constants);
 	defer env.deinit();
+	var dbg_stdin = std.fs.File.stdin().reader(staticBuffer(2048));
+
+	// enter repl mode if there is no file
+	if (args.positional.file == null) {
+		try stderr.interface.print("\x1b[2;3mEntering REPL. Use #help for help.\n\x1b[0m");
+		try dbg.repl(.{
+			.constants = &constants,
+			.env = &env,
+			.files = &files,
+			.in = &dbg_stdin.interface,
+			.out = &stderr.interface,
+		});
+	}
 
 	try env.call(constants.get(main_func_constant).*);
-
-	var dbg_stdin = std.fs.File.stdin().reader(staticBuffer(2048));
 
 	if (args.debug) {
 		try dbg.debug(.{
