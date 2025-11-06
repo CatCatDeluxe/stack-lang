@@ -100,7 +100,7 @@ pub fn eatIn(self: *@This(), set: Charset) []const u8 {
 /// Returns whether the next part of the string is the same as `expect`. If the
 /// remaining text is too short, returns false.
 pub fn nextIs(self: @This(), expect: []const u8) bool {
-	if (self.state.position + expect.len >= self.text.len) return false;
+	if (self.state.position + expect.len > self.text.len) return false;
 	for (0..expect.len) |i| {
 		if (self.text[self.state.position + i] != expect[i]) {
 			return false;
