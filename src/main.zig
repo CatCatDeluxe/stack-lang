@@ -16,7 +16,10 @@ fn staticBuffer(comptime size: usize) []u8 {
 pub fn main() !void {
 	var dbg_alloc = std.heap.DebugAllocator(.{}).init;
 	defer _ = dbg_alloc.deinit();
-	const alloc = dbg_alloc.allocator();
+
+	const alloc =
+		if (comptime @import("builtin").mode != .ReleaseFast) dbg_alloc.allocator()
+		else std.heap.smp_allocator;
 
 	const cmd_args = try std.process.argsAlloc(alloc);
 	defer std.process.argsFree(alloc, cmd_args);

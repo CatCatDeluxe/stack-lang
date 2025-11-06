@@ -105,15 +105,18 @@ const StackBackup = struct {
 	}
 };
 
+/// Creates a stack backup. Increments the stored variants.
 fn createStackBackup(self: @This(), nitems: usize) !StackBackup {
 	const stack = self.topStack();
 	const slice = stack.items[stack.items.len - nitems..];
+	for (slice) |*v| _ = v.inc();
 	return .{
 		.items = try .from(self.alloc, slice),
 		.len_without = stack.items.len - nitems,
 	};
 }
 
+/// Loads a stack backup. Decrements the stored variants since they were incremented for storage.
 fn loadStackBackup(self: *@This(), backup: *StackBackup) !void {
 	const stack = self.topStack();
 	if (stack.items.len < backup.len_without) @panic("Cannot load stack state backup: not enough items");
@@ -314,7 +317,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 
 			const new: Variant = b: switch (func_ref) {
 				.function_ref => {
-					for (captures) |*v| _ = v.inc();
+					//for (captures) |*v| _ = v.inc();
 					break :b try func_ref.withCaptures(self.alloc, captures);
 				},
 				else => return error.NotFunction,
