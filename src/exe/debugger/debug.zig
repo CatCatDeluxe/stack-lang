@@ -41,6 +41,23 @@ const param = struct {
 
 /// Conatins the commands for the debugger.
 const commands = struct {
+	pub const descriptions = .{
+		.next = "Runs the next instruction",
+		.run = "Runs until an error/breakpoint or the end of the program is reached",
+		.repl = "Compiles user code to a function, and pushes it onto the call stack",
+		.rrepl = "Same as repl, but automatically runs the function",
+		.instruction = "Shows the next instruction",
+		.list = "Shows the list of instructions in the current function",
+		.stack = "Shows the values on the stack, and temporary stack(s) if present",
+		.locals = "Shows the list of currently declared locals in the current function",
+		.declare = "Declares a global with the provided name. Its value is popped from the stack",
+		.frames = "Shows the call stack",
+		.@"return" = "Returns from the current function",
+		.skip = "Skips the next instruction",
+		.help = "Shows this help text",
+		.quit = "Exits the program",
+	};
+
 	pub fn next(c: Context) !void {
 		try instruction(c);
 		switch (try runStep(c)) {
@@ -208,7 +225,16 @@ const commands = struct {
 
 	pub fn help(ctx: Context) !void {
 		inline for (comptime std.meta.declarations(commands)) |decl| {
-			try ctx.out.print(" - {s} : {s}\n", .{decl.name, @typeName(@TypeOf(@field(commands, decl.name)))});
+			switch (@typeInfo(@TypeOf(@field(@This(), decl.name)))) {
+				.@"fn" => {},
+				else => continue,
+			}
+
+			const description: []const u8 =
+				if (@hasField(@TypeOf(descriptions), decl.name)) @field(descriptions, decl.name)
+				else "<no description provided>";
+
+			try ctx.out.print(" - \x1b[34m{s}\x1b[0m: {s}\n", .{decl.name, description});
 		}
 	}
 
@@ -244,11 +270,16 @@ pub fn debug(ctx_in: Context) !void {
 		_ = s.eatIn(sl.parser.Token.chars_whitespace);
 
 		inline for (comptime std.meta.declarations(commands)) |decl| {
+			const func = @field(commands, decl.name);
+			switch (@typeInfo(@TypeOf(func))) {
+				.@"fn" => {},
+				else => continue,
+			}
+
 			if (std.mem.startsWith(u8, decl.name, command_name)) {
 				// show the name of the called command
 				try ctx.out.print("\r\x1b[1A\x1b[{}C\x1b[0;2m: {s}\x1b[0m\n", .{input.len + 3, decl.name});
 
-				const func = @field(commands, decl.name);
 				const Args = std.meta.ArgsTuple(@TypeOf(func));
 				var args: Args = undefined;
 				args.@"0" = ctx;
@@ -270,7 +301,7 @@ pub fn debug(ctx_in: Context) !void {
 				break;
 			}
 		} else {
-			try ctx.out.print("invalid command '{s}'\n", .{s.text});
+			try ctx.out.print("Unknown command '{s}'\n", .{command_name});
 		}
 	}
 }
