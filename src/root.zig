@@ -21,8 +21,13 @@ pub const Options = struct {
 	errs: ?*ErrorList,
 	/// The code of the function to compile.
 	code: []const u8,
-	/// The filename to show in the
+	/// The filename to show in the error log.
 	filename: []const u8 = "<temp>",
+	/// Whether to show warnings or not.
+	/// TODO: make this actually work
+	warnings: bool = true,
+	/// Whether to optimize the code or not.
+	optimize: bool = true,
 };
 
 /// Compiles a string of code into a function in `constants`.
@@ -41,6 +46,14 @@ pub fn compileFunction(out: *Constants, opts: Options) (parser.SyntaxError || ir
 		.alloc = opts.temp_alloc,
 		.constants = out,
 	});
+
+	if (opts.optimize) {
+		ir.optimizer.findTailCalls(.{
+			.alloc = opts.temp_alloc,
+			.errors = errs,
+			.temp = opts.temp_alloc,
+		}, ir_nodes);
+	}
 
 	errs.current_step = "compiler";
 	return try compiler.compile(ir_nodes, .{
