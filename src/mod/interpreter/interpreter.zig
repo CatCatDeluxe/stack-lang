@@ -54,14 +54,12 @@ pub const Frame = struct {
 	/// Frees memory and decrements Rc'd variants.
 	pub fn deinit(self: *Frame, alloc: std.mem.Allocator) void {
 		for (self.locals.items) |*v| {
-			std.debug.print("Dec local {f}\n\n", .{v});
 			v.dec(alloc);
 		}
 		self.locals.deinit(alloc);
 		self.local_counts.deinit(alloc);
 
 		if (self.captures) |captures| {
-			std.debug.print("({any}, rc -> {})", .{captures.val, captures.refcount - 1});
 			if (captures.dec(alloc)) |c| {
 				for (c) |*v| v.dec(alloc);
 				alloc.free(c);
@@ -72,20 +70,17 @@ pub const Frame = struct {
 	fn pushLocalCount(self: *@This(), alloc: std.mem.Allocator) !void {
 		const n: u16 = @intCast(self.locals.items.len);
 		try self.local_counts.add(alloc, n);
-		//std.debug.print("Local counts {any}\n", .{self.local_counts.items});
 	}
 
 	/// Loads the local count from the top of `local_counts`. Does not pop the local count.
 	/// Removed locals are properly freed.
 	fn loadLocalCount(self: *@This(), alloc: std.mem.Allocator) void {
 		const count = self.local_counts.last().*;
-		std.debug.print("Loaded local count: {} -> {}\n\n", .{self.locals.items.len, count});
 		if (count > self.locals.items.len) {
 			std.debug.panic("Cannot load local count greater than current local count", .{});
 		}
 
 		for (self.locals.items[count..]) |*v| {
-			std.debug.print("Dec local {f}\n\n", .{v.colorize()});
 			v.dec(alloc);
 		}
 		self.locals.items.len = count;
