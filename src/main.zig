@@ -202,6 +202,7 @@ pub fn main() !void {
 			.in = &dbg_stdin.interface,
 			.out = &stderr.interface,
 		});
+		return;
 	}
 
 	execute: while (true) {
