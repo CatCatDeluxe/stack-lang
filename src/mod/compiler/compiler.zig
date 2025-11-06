@@ -123,8 +123,6 @@ fn genChecks(
 				add_pop = false;
 				try func.add(.init(.push_temp_stack, check.root.position, 1));
 				try func.add(.init(.call, check.root.position, {}));
-				// compile the inner checks:
-				// TODO: make sure this includes popping the temp stack before exiting
 
 				var func_next_case_jumps = JumpList.empty;
 				defer func_next_case_jumps.deinit(opts.temp_alloc);
@@ -242,7 +240,7 @@ fn compileIn(
 		.match => |cases| {
 			// The list of indices of `jump` instructions that should jump to
 			// the end of the whole match block.
-			var end_jumps = std.ArrayList(usize) {};
+			var end_jumps = JumpList.empty;
 			defer end_jumps.deinit(opts.temp_alloc);
 
 			for (cases, 0..) |case, case_index| {
@@ -273,60 +271,12 @@ fn compileIn(
 					scope, &next_case_jumps,
 					captures, opts);
 
-				// Add names and insert checks
-				//var index = checks.len;
-				//while (index > 0) {
-					//index -= 1;
-					//const check = checks[index];
-					//var add_pop = true;
-//
-					//if (check.name) |name| {
-						//if (check_name_list.get(name) == null) {
-							//// new name introduced -- add local
-							//if (scope.locals.names.items.len == std.math.maxInt(u8)) {
-								//opts.errors.pushError(.err, check.root.position,
-									//"Number of locals exceeded the maximum of {}",
-									//.{std.math.maxInt(u8)});
-							//}
-//
-							//_ = try check_name_list.add(opts.temp_alloc, name);
-							//_ = try scope.locals.add(opts.temp_alloc, name);
-							//try func.add(.init(.add_local, check.root.position, {}));
-						//} else {
-							//// existing name used -- check for equality instead
-							//const get_index = scope.locals.get(name).?;
-							//try func.add(.init(.push_local, check.root.position, get_index));
-							//try func.add(.init(.test_equal, check.root.position, {}));
-//
-							//// Store the index of an empty instruction, later it will be changed
-							//// to a jump to the next branch
-							//try next_case_jumps.append(opts.temp_alloc, try func.addOne());
-							//add_pop = false;
-						//}
-					//}
-//
-					//switch (check.check) {
-						//.none => {},
-						//.func_expand => @panic("Function expansions are not implemented yet"),
-						//.regular => |nodes| {
-							//try func.add(.init(.push_temp_stack, check.root.position, 1));
-							//for (nodes) |node| try compileIn(node, opts, func, captures, scope);
-							//try func.add(.init(.pop_temp_stack, check.root.position, 1));
-							//// Store pointers for later so that the jump length can be set
-							//// WARNING: instruction is undefined! Do not read from it!
-							//try next_case_jumps.append(opts.temp_alloc, try func.addOne());
-						//}
-					//}
-//
-					//if (add_pop) try func.add(.init(.pop, check.root.position, 1));
-				//}
-
 				for (body) |node| try compileIn(node, opts, func, captures, scope);
 
 				// If the branch is successful, jumps to after the last branch.
 				// This is not needed for the last branch.
 				if (case_index < cases.len - 1) {
-					try end_jumps.append(opts.temp_alloc, try func.addOne());
+					try end_jumps.addJump(opts.temp_alloc, func, .jump);
 				}
 
 				// Write to all locations where a jump to the next branch is needed:
@@ -349,10 +299,7 @@ fn compileIn(
 			}
 
 			// Write to all locations where a jump to the end is needed
-			const end = func.insts.items.len;
-			for (end_jumps.items) |index| {
-				func.insts.items[index] = .init(.jump, ir.root.position, @intCast(end - index));
-			}
+			end_jumps.resolve(func.insts.items, func.insts.items.len);
 
 			// Only add a pop_local_count to the end of the last
 			// branch. Other branches can jump to it at the end of
