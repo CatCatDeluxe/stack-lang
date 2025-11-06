@@ -1,5 +1,6 @@
 const std = @import("std");
 const IRNode = @import("../ir/analyzer.zig").IRNode;
+const MatchCheckNode = @import("../ir/analyzer.zig").MatchCheckNode;
 const ObjWriter = @import("../utils/o_writer.zig").ObjWriter;
 const ErrorList = @import("../error_list.zig");
 const NameList = @import("./name_list.zig");
@@ -32,6 +33,128 @@ const Scope = struct {
 		self.locals.deinit(alloc);
 	}
 };
+
+const JumpList = struct {
+	const JumpType = enum {jump, fail_check_if_false};
+	const UnresolvedJump = struct {
+		from: usize,
+		type: JumpType,
+	};
+
+	const empty = @This() {.jumps = .empty};
+
+	jumps: std.ArrayList(UnresolvedJump),
+
+	fn addJump(self: *@This(), alloc: std.mem.Allocator, func: *Constants.CreateFunc, j_type: JumpType) !void {
+		const idx = try func.addOne();
+		errdefer _ = func.insts.pop();
+		try self.jumps.append(alloc, .{.from = idx, .type = j_type});
+	}
+
+	/// Writes to `body` at the location of the jumps in `jumps`.
+	fn resolve(self: @This(), body: []Instruction, to: usize) void {
+		for (self.jumps.items) |jump| {
+			const diff: isize =
+				if (to >= jump.from) @intCast(to - jump.from)
+				else -@as(isize, @intCast(jump.from - to));
+
+			body[jump.from] = switch (jump.type) {
+				.jump => .init(.jump, .{.line = 0, .col = 0, .position = 0}, @intCast(diff)),
+				.fail_check_if_false => .init(.fail_check_if_false, .{.line = 0, .col = 0, .position = 0}, @intCast(diff)),
+			};
+		}
+	}
+
+	/// Deinit the jump list. Probably will not be used, because when compiling,
+	/// memory is allocated in an arena.
+	fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+		self.jumps.deinit(alloc);
+	}
+};
+
+/// Generates the checks for a single branch.
+fn genChecks(
+	func: *Constants.CreateFunc,
+	checks: []const MatchCheckNode,
+	added_locals: *NameList,
+	scope: *Scope,
+	/// Appends the locations of the jump-if-falses to the next case to this array.
+	next_case_jumps: *JumpList,
+	/// Not really used by the checks, but must be passed for compilation of inner blocks
+	captures: *NameList,
+	opts: CompileOptions,
+) !void {
+	// Add names and insert checks
+	var index = checks.len;
+	while (index > 0) {
+		index -= 1;
+		const check = checks[index];
+		var add_pop = true;
+
+		if (check.name) |name| {
+			if (added_locals.get(name) != null) {
+				const local_index = scope.locals.get(name).?;
+				// existing name used -- check for equality instead
+				try func.add(.init(.push_local, check.root.position, local_index));
+				try func.add(.init(.test_equal, check.root.position, {}));
+				// test_equal pops the values automatically
+				add_pop = false;
+
+				// Store the index of an empty instruction, later it will be changed
+				// to a jump to the next branch
+				try next_case_jumps.addJump(opts.temp_alloc, func, .fail_check_if_false);
+			} else {
+				// new name introduced -- add local
+				if (scope.locals.names.items.len == std.math.maxInt(u8)) {
+					opts.errors.pushError(.err, check.root.position,
+						"Number of locals exceeded the maximum of {}",
+						.{std.math.maxInt(u8)});
+				}
+
+				_ = try added_locals.add(opts.temp_alloc, name);
+				_ = try scope.locals.add(opts.temp_alloc, name);
+				try func.add(.init(.add_local, check.root.position, {}));
+			}
+		}
+
+		switch (check.check) {
+			.none => {},
+			.func_expand => |func_checks| {
+				add_pop = false;
+				try func.add(.init(.push_temp_stack, check.root.position, 1));
+				try func.add(.init(.call, check.root.position, {}));
+				// compile the inner checks:
+				// TODO: make sure this includes popping the temp stack before exiting
+
+				var func_next_case_jumps = JumpList.empty;
+				defer func_next_case_jumps.deinit(opts.temp_alloc);
+
+				try genChecks(func, func_checks, added_locals, scope, &func_next_case_jumps, captures, opts);
+
+				try func.add(.init(.pop_temp_stack, check.root.position, 0));
+
+				if (func_next_case_jumps.jumps.items.len > 0) {
+					// jump past the other cleanup for failed branches
+					try func.add(.init(.jump, check.root.position, 3));
+
+					func_next_case_jumps.resolve(func.insts.items, func.insts.items.len);
+					try func.add(.init(.pop_temp_stack, check.root.position, 0));
+					try next_case_jumps.addJump(opts.temp_alloc, func, .jump);
+				}
+			},
+			.regular => |nodes| {
+				try func.add(.init(.push_temp_stack, check.root.position, 1));
+				for (nodes) |node| try compileIn(node, opts, func, captures, scope);
+				try func.add(.init(.pop_temp_stack, check.root.position, 1));
+
+				// jump to the next branch if the result is not truthy
+				try next_case_jumps.addJump(opts.temp_alloc, func, .fail_check_if_false);
+			}
+		}
+
+		if (add_pop) try func.add(.init(.pop, check.root.position, 1));
+	}
+}
 
 fn compileIn(
 	ir: IRNode,
@@ -142,55 +265,61 @@ fn compileIn(
 				// The list of names used in the check
 				var check_name_list = NameList {};
 				// The list of indices of instructions that should jump to the next case
-				var next_case_jumps = std.ArrayList(usize).empty;
+				var next_case_jumps = JumpList.empty;
+				defer next_case_jumps.deinit(opts.temp_alloc);
+
+				try genChecks(
+					func, checks, &check_name_list,
+					scope, &next_case_jumps,
+					captures, opts);
 
 				// Add names and insert checks
-				var index = checks.len;
-				while (index > 0) {
-					index -= 1;
-					const check = checks[index];
-					var add_pop = true;
-
-					if (check.name) |name| {
-						if (check_name_list.get(name) == null) {
-							// new name introduced -- add local
-							if (scope.locals.names.items.len == std.math.maxInt(u8)) {
-								opts.errors.pushError(.err, check.root.position,
-									"Number of locals exceeded the maximum of {}",
-									.{std.math.maxInt(u8)});
-							}
-
-							_ = try check_name_list.add(opts.temp_alloc, name);
-							_ = try scope.locals.add(opts.temp_alloc, name);
-							try func.add(.init(.add_local, check.root.position, {}));
-						} else {
-							// existing name used -- check for equality instead
-							const get_index = scope.locals.get(name).?;
-							try func.add(.init(.push_local, check.root.position, get_index));
-							try func.add(.init(.test_equal, check.root.position, {}));
-
-							// Store the index of an empty instruction, later it will be changed
-							// to a jump to the next branch
-							try next_case_jumps.append(opts.temp_alloc, try func.addOne());
-							add_pop = false;
-						}
-					}
-
-					switch (check.check) {
-						.none => {},
-						.func_expand => @panic("Function expansions are not implemented yet"),
-						.regular => |nodes| {
-							try func.add(.init(.push_temp_stack, check.root.position, 1));
-							for (nodes) |node| try compileIn(node, opts, func, captures, scope);
-							try func.add(.init(.pop_temp_stack, check.root.position, 1));
-							// Store pointers for later so that the jump length can be set
-							// WARNING: instruction is undefined! Do not read from it!
-							try next_case_jumps.append(opts.temp_alloc, try func.addOne());
-						}
-					}
-
-					if (add_pop) try func.add(.init(.pop, check.root.position, 1));
-				}
+				//var index = checks.len;
+				//while (index > 0) {
+					//index -= 1;
+					//const check = checks[index];
+					//var add_pop = true;
+//
+					//if (check.name) |name| {
+						//if (check_name_list.get(name) == null) {
+							//// new name introduced -- add local
+							//if (scope.locals.names.items.len == std.math.maxInt(u8)) {
+								//opts.errors.pushError(.err, check.root.position,
+									//"Number of locals exceeded the maximum of {}",
+									//.{std.math.maxInt(u8)});
+							//}
+//
+							//_ = try check_name_list.add(opts.temp_alloc, name);
+							//_ = try scope.locals.add(opts.temp_alloc, name);
+							//try func.add(.init(.add_local, check.root.position, {}));
+						//} else {
+							//// existing name used -- check for equality instead
+							//const get_index = scope.locals.get(name).?;
+							//try func.add(.init(.push_local, check.root.position, get_index));
+							//try func.add(.init(.test_equal, check.root.position, {}));
+//
+							//// Store the index of an empty instruction, later it will be changed
+							//// to a jump to the next branch
+							//try next_case_jumps.append(opts.temp_alloc, try func.addOne());
+							//add_pop = false;
+						//}
+					//}
+//
+					//switch (check.check) {
+						//.none => {},
+						//.func_expand => @panic("Function expansions are not implemented yet"),
+						//.regular => |nodes| {
+							//try func.add(.init(.push_temp_stack, check.root.position, 1));
+							//for (nodes) |node| try compileIn(node, opts, func, captures, scope);
+							//try func.add(.init(.pop_temp_stack, check.root.position, 1));
+							//// Store pointers for later so that the jump length can be set
+							//// WARNING: instruction is undefined! Do not read from it!
+							//try next_case_jumps.append(opts.temp_alloc, try func.addOne());
+						//}
+					//}
+//
+					//if (add_pop) try func.add(.init(.pop, check.root.position, 1));
+				//}
 
 				for (body) |node| try compileIn(node, opts, func, captures, scope);
 
@@ -202,23 +331,19 @@ fn compileIn(
 
 				// Write to all locations where a jump to the next branch is needed:
 
-				const end_pos = func.insts.items.len;
-
 				// The branch_check_begin will jump to this location if there
 				// are not enough items on the stack. At the end of the match
 				// block, it needs to jump *past* the pop_local_count, since
 				// it would have never added the locals in the first place.
-				// TODO: add an instruction to signify that all match branches have failed
+				const end_pos = func.insts.items.len;
 				{
 					const fail_jump_to: u16 =
 						if (case_index < cases.len - 1) @intCast(end_pos - first_pos)
 						else 0; // on the last branch, the jump offset is 0, signalling the match failed
 					func.insts.items[first_pos].data.branch_check_begin.jump = fail_jump_to;
 				}
+				next_case_jumps.resolve(func.insts.items, end_pos);
 
-				for (next_case_jumps.items) |pos| {
-					func.insts.items[pos] = .init(.fail_check_if_false, placeholder_pos, @intCast(end_pos - pos));
-				}
 				// Remove all the locals that might have been added by this check.
 				scope.locals.remove(opts.temp_alloc, check_name_list.names.items.len);
 			}
