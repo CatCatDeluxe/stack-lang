@@ -121,11 +121,15 @@ fn genChecks(
 			.none => {},
 			.func_expand => |func_checks| {
 				add_pop = false;
-				try func.add(.init(.push_temp_stack, check.root.position, 1));
-				try func.add(.init(.call, check.root.position, {}));
-
 				var func_next_case_jumps = JumpList.empty;
 				defer func_next_case_jumps.deinit(opts.temp_alloc);
+
+				try func.add(.init(.push_temp_stack, check.root.position, 1));
+				try func.add(.init(.call, check.root.position, {}));
+				if (func_checks.len > 0) {
+					try func.add(.init(.check_stack_length, check.root.position, @intCast(func_checks.len)));
+					try func_next_case_jumps.addJump(opts.temp_alloc, func, .fail_check_if_false);
+				}
 
 				try genChecks(func, func_checks, added_locals, scope, &func_next_case_jumps, captures, opts);
 

@@ -491,6 +491,10 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 
 			try self.topStack().appendSlice(self.alloc, slice);
 		},
+		.check_stack_length => |min_length| {
+			const stack = self.topStack();
+			try stack.append(self.alloc, .fromPrimitive(stack.items.len > min_length));
+		},
 		.add_local => {
 			const stack = self.topStack();
 			if (stack.items.len < 1) return error.StackEmpty;

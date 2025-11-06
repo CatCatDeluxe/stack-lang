@@ -80,6 +80,9 @@ pub const Data = union(enum) {
 	/// new top stack.
 	pop_temp_stack: u8,
 
+	/// Pushes 1 if the current stack has at least `n` items, and pushes 0 otherwise.
+	check_stack_length: u8,
+
 	/// Adds a local to the top of the local stack.
 	add_local,
 
@@ -187,7 +190,7 @@ pub fn format(
 		inline .push_global, .push_local, .push_capture, .push_sym => |id|
 			try printCol(writer, .green, " \x1b[2m#\x1b[0;32m{}", .{id}),
 
-		.pop, .push_temp_stack, .pop_temp_stack, .assign_captures => |n|
+		.pop, .push_temp_stack, .pop_temp_stack, .assign_captures, .check_stack_length => |n|
 			try printCol(writer, .cyan, " {} \x1b[2mvalues", .{n}),
 
 		.branch_check_begin => |params|
