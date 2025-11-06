@@ -83,6 +83,10 @@ pub const Data = union(enum) {
 	/// Adds a local to the top of the local stack.
 	add_local,
 
+	/// Pops the top value of the stack and adds it as a new local.
+	/// The same as `add_local` + `pop`, but a simpler operation on its own.
+	take_local,
+
 	/// Pops the top two values. Pushes true if they are equal, and false otherwise.
 	test_equal,
 
