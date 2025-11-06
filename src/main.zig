@@ -182,7 +182,7 @@ pub fn main() !void {
 
 	// enter repl mode if there is no file
 	if (args.positional.file == null) {
-		try stderr.interface.print("\x1b[2;3mEntering REPL. Use #help for help.\n\x1b[0m");
+		try stderr.interface.print("\x1b[2;3mEntering REPL.\n\x1b[0m", .{});
 		try dbg.repl(.{
 			.constants = &constants,
 			.env = &env,
