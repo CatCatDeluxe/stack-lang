@@ -346,7 +346,6 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			switch (function) {
 				.function_ref => |id| {
 					const func = self.constants.functions.items[id];
-
 					self.exitFrame(frame.*);
 
 					if (frame.captures) |captures| {
@@ -376,7 +375,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 
 					// if the captures are the same, we can skip incrementing and decrementing
 					if (data.captures != frame.captures) {
-						_ = data.captures.inc();
+						// (don't decrement dat.captures because we are just moving it into the new stack frame)
 						if (frame.captures) |captures| {
 							if (captures.dec(self.alloc)) |slice| {
 								for (slice) |*v| v.dec(self.alloc);
