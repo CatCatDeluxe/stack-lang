@@ -95,6 +95,22 @@ const commands = struct {
 		try c.env.call(c.constants.globals.items[func_var_id]);
 	}
 
+	/// Similar to `repl`, but automatically runs the code.
+	pub fn rrepl(c: Context, code_p: param.RestOfLine) !void {
+		try repl(c, code_p);
+		const stack_size = c.env.frames.items.len;
+		while (c.env.frames.items.len >= stack_size) {
+			switch (try runStep(c)) {
+				.normal => {},
+				.at_end, .runtime_error => break,
+				.breakpoint => {
+					_ = try c.out.write("\x1b[31;1m * \x1b[0mbreakpoint\n");
+					break;
+				},
+			}
+		}
+	}
+
 	pub fn instruction(c: Context) !void {
 		if (c.env.nextInstruction() == null) {
 			try c.out.print("\x1b[2;3mno next instruction\x1b[0m\n", .{});
