@@ -116,7 +116,7 @@ const commands = struct {
 	pub fn rrepl(c: Context, code_p: param.RestOfLine) !void {
 		try @This().repl(c, code_p);
 		const stack_size = c.env.frames.items.len;
-		while (c.env.frames.items.len >= stack_size) {
+		while (c.env.checkExit() and c.env.frames.items.len >= stack_size) {
 			switch (try runStep(c)) {
 				.normal => {},
 				.at_end, .runtime_error => break,
@@ -156,14 +156,14 @@ const commands = struct {
 			try c.out.print("\x1b[2m", .{});
 			if (i == 0) try c.out.print("(main)", .{})
 				else try c.out.print("{: >5}.", .{i});
-			try c.out.print(" \x1b[0m[", .{});
+			try c.out.print("\x1b[0m ", .{});
 
 			for (s.items, 0..) |v, j| {
 				if (j > 0) try c.out.print(", ", .{});
 				try c.out.print("{f}", .{v.colorize()});
 			}
 
-			try c.out.print("]\n", .{});
+			try c.out.print("\n", .{});
 		}
 	}
 
@@ -309,17 +309,19 @@ pub fn repl(ctx_in: Context) !void {
 		_ = s.eatIn(sl.parser.Token.chars_whitespace);
 
 		if (s.nextIs("help")) {
+			try ctx.out.print("To run these commands, start the line with `\\`.\n", .{});
 			try commands.help(ctx);
 			continue;
 		}
 
-		if (s.nextc() == '#') {
+		if (s.nextc() == '\\') {
 			s.advance(1);
 			try parseAndRunCommand(ctx, &s);
 			continue;
 		}
 
 		try commands.rrepl(ctx, .{s.text});
+		try commands.stack(ctx);
 	}
 }
 
