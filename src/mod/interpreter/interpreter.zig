@@ -91,6 +91,9 @@ const Stack = std.ArrayList(Variant);
 
 const StackBackup = struct {
 	items: BufArrayList(Variant, 4),
+	/// The number of stacks at the time of creating this backup.
+	/// When loading the backup, there must be at least this many stacks.
+	num_stacks: usize,
 	/// The stack length, including the stored items.
 	len_without: usize,
 
@@ -108,11 +111,21 @@ fn createStackBackup(self: @This(), nitems: usize) !StackBackup {
 	return .{
 		.items = try .from(self.alloc, slice),
 		.len_without = stack.items.len - nitems,
+		.num_stacks = self.stacks.items.len,
 	};
 }
 
 /// Loads a stack backup. Decrements the stored variants since they were incremented for storage.
+/// Deinitializes the backup.
 fn loadStackBackup(self: *@This(), backup: *StackBackup) !void {
+	if (self.stacks.items.len > backup.num_stacks) {
+		for (self.stacks.items[backup.num_stacks..]) |*temp_stack| {
+			for (temp_stack.items) |*v| v.dec(self.alloc);
+			temp_stack.deinit(self.alloc);
+		}
+		self.stacks.items.len = backup.num_stacks;
+	}
+
 	const stack = self.topStack();
 	if (stack.items.len < backup.len_without) @panic("Cannot load stack state backup: not enough items");
 	for (stack.items[backup.len_without..]) |*v_delete| v_delete.dec(self.alloc);
@@ -121,6 +134,7 @@ fn loadStackBackup(self: *@This(), backup: *StackBackup) !void {
 	for (try stack.addManyAsSlice(self.alloc, backup.items.len), 0..) |*new_val, i| {
 		new_val.* = backup.items.get(i).*;
 	}
+	backup.items.deinit(self.alloc);
 }
 
 /// The working allocator while executing.
@@ -130,8 +144,6 @@ constants: *const Constants,
 /// The stack of temp stacks. The first element is the main stack.
 /// Items from lower stacks than the top one should never be accessed!
 stacks: std.ArrayList(Stack),
-/// Stores the count of temp stacks.
-stack_counts: std.ArrayList(u16),
 /// The call stack.
 frames: std.ArrayList(Frame),
 /// The stack backups created by match branches. When adding or removing from
@@ -143,7 +155,6 @@ pub fn init(alloc: std.mem.Allocator, constants: *const Constants) !@This() {
 		.alloc = alloc,
 		.constants = constants,
 		.stacks = try .initCapacity(alloc, 2),
-		.stack_counts = .empty,
 		.frames = undefined,
 	};
 	errdefer res.stacks.deinit(alloc);
@@ -161,7 +172,6 @@ pub fn deinit(self: *@This()) void {
 	for (self.frames.items) |*f| f.deinit(self.alloc);
 	self.frames.deinit(self.alloc);
 	self.stack_backups.deinit(self.alloc);
-	self.stack_counts.deinit(self.alloc);
 }
 
 /// Adds the variant onto the stack frame. If it refers to a builtin function,
@@ -209,13 +219,6 @@ inline fn failCheck(self: *@This(), jump_offs: usize) !void {
 
 	if (jump_offs == 0) return InterpreterError.MatchFailed;
 	frame.position += jump_offs;
-
-	// check the next instruction. If it's pop_stack_count, run it before loading the stack backup.
-	// a weird special case, but it makes the bytecode a lot shorter than it otherwise would be.
-	if (frame.position < frame.code.len and frame.code[frame.position].data == .pop_stack_count) {
-		self.popStackCount();
-		frame.position += 1;
-	}
 
 	// Also retrieve the old local count
 	frame.loadLocalCount(self.alloc);
@@ -503,15 +506,16 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 				return false;
 			}
 		},
+		// Ends a check properly, removing one stack backup created by the `branch_check_begin`.
+		.end_check => {
+			if (frame.n_stack_backups < 0) return error.StackStackEmpty;
+			frame.n_stack_backups -= 1;
+			var bak = self.stack_backups.pop() orelse return false;
+			bak.deinit(self.alloc);
+		},
 		.pop_local_count => {
 			frame.loadLocalCount(self.alloc);
 			_ = frame.local_counts.pop();
-		},
-		.push_stack_count => {
-			try self.stack_counts.append(self.alloc, @intCast(self.stacks.items.len));
-		},
-		.pop_stack_count => {
-			self.popStackCount();
 		},
 		.push_temp_stack => |ncopy| {
 			// TODO: make sure that it's ok to not increase the variant's reference counts here

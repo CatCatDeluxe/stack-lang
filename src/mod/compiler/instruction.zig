@@ -97,10 +97,8 @@ pub const Data = union(enum) {
 	/// Pops the top two values. Pushes true if they are equal, and false otherwise.
 	test_equal,
 
-	/// Pushes a temp stack count.
-	push_stack_count,
-	/// Pops a temp stack count.
-	pop_stack_count,
+	/// Ends a check properly.
+	end_check,
 	fail_check: u16,
 	jump_if: u16,
 	jump_unless: u16,

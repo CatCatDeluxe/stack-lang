@@ -130,7 +130,6 @@ fn genChecks(
 		switch (check.check) {
 			.none => {},
 			.func_expand => |func_checks| {
-				add_pop = false;
 				ctx.has_temp_stacks = true;
 				//var func_next_case_jumps = JumpList.empty;
 				//defer func_next_case_jumps.deinit(opts.temp_alloc);
@@ -299,20 +298,13 @@ fn compileIn(
 					&check_code, &ctx, checks, &check_name_list,
 					&next_case_jumps, opts);
 
-				if (ctx.has_temp_stacks) {
-					try func.append(.init(.push_stack_count, placeholder_pos, {}));
-				}
-
 				// all the next case jumps' positions start from 0 being the first
 				// instruction in the jump, so adjust that:
 				for (next_case_jumps.jumps.items) |*jump| {
 					jump.from += func.items.len;
 				}
 				try func.appendSlice(check_code.items);
-
-				if (ctx.has_temp_stacks) {
-					try func.append(.init(.pop_stack_count, placeholder_pos, {}));
-				}
+				try func.append(.init(.end_check, placeholder_pos, {}));
 
 				for (body) |node| try compileIn(node, opts, func, captures, scope);
 				// If the branch is successful, jumps to after the last branch.
@@ -335,9 +327,6 @@ fn compileIn(
 					func.items[first_pos].data.branch_check_begin.jump = fail_jump_to;
 				}
 				next_case_jumps.resolve(func.items, end_pos);
-
-				// add the deinit code
-				if (ctx.has_temp_stacks) try func.append(.init(.pop_stack_count, placeholder_pos, {}));
 
 				// Remove all the locals that might have been added by this check.
 				scope.locals.remove(opts.temp_alloc, check_name_list.names.items.len);
