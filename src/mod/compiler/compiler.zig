@@ -41,6 +41,18 @@ const JumpList = struct {
 	const UnresolvedJump = struct {
 		from: usize,
 		type: JumpType,
+
+		fn resolve(self: @This(), body: []Instruction, to: usize) void {
+			const diff: isize =
+				if (to >= self.from) @intCast(to - self.from)
+				else -@as(isize, @intCast(self.from - to));
+
+			body[self.from] = switch (self.type) {
+				inline .jump, .fail_check_if_false, .jump_if, .jump_unless, .fail_check => |t|
+					.init(t, .{.line = 0, .col = 0, .position = 0}, @intCast(diff)),
+				else => std.debug.panic("Invalid jump type: {s}", .{@tagName(self.type)}),
+			};
+		}
 	};
 
 	const empty = @This() {.jumps = .empty};
@@ -57,15 +69,7 @@ const JumpList = struct {
 	/// Writes to `body` at the location of the jumps in `jumps`.
 	fn resolve(self: @This(), body: []Instruction, to: usize) void {
 		for (self.jumps.items) |jump| {
-			const diff: isize =
-				if (to >= jump.from) @intCast(to - jump.from)
-				else -@as(isize, @intCast(jump.from - to));
-
-			body[jump.from] = switch (jump.type) {
-				inline .jump, .fail_check_if_false, .jump_if, .jump_unless, .fail_check => |t|
-					.init(t, .{.line = 0, .col = 0, .position = 0}, @intCast(diff)),
-				else => std.debug.panic("Invalid jump type: {s}", .{@tagName(jump.type)}),
-			};
+			jump.resolve(body, to);
 		}
 	}
 
@@ -328,7 +332,12 @@ fn compileIn(
 						else 0; // on the last branch, the jump offset is 0, signalling the match failed
 					func.items[first_pos].data.branch_check_begin.jump = fail_jump_to;
 				}
-				next_case_jumps.resolve(func.items, end_pos);
+				if (case_index < cases.len - 1) {
+					next_case_jumps.resolve(func.items, end_pos);
+				} else for (next_case_jumps.jumps.items) |jump| {
+					// if this is the last branch, resolve all fail jumps to have a jump val of 0.
+					jump.resolve(func.items, jump.from);
+				}
 
 				// Remove all the locals that might have been added by this check.
 				scope.locals.remove(opts.temp_alloc, check_name_list.names.items.len);

@@ -171,6 +171,8 @@ pub fn deinit(self: *@This()) void {
 	self.stacks.deinit(self.alloc);
 	for (self.frames.items) |*f| f.deinit(self.alloc);
 	self.frames.deinit(self.alloc);
+
+	for (self.stack_backups.items) |*backup| backup.deinit(self.alloc);
 	self.stack_backups.deinit(self.alloc);
 }
 
