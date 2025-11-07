@@ -260,6 +260,8 @@ fn compileIn(
 			defer ctx.end_jumps.deinit(opts.temp_alloc);
 
 			for (cases, 0..) |case, case_index| {
+				// TODO: optimize branches that can't fail after branch_check_begin
+
 				const checks, const body = case;
 				// placeholder position for instructions
 				const placeholder_pos = if (checks.len > 0) checks[0].root.position else undefined;

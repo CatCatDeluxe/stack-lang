@@ -20,6 +20,8 @@ inline fn allAs(comptime n: comptime_int, vars: *[n]sl.Variant, T: type) ![n]*T 
 }
 
 pub const stdlib = struct {
+	var stdout_buf: [512]u8 = undefined;
+
 	pub fn @"+"(e: *sl.Env) !void {
 		const args = try require(e, 2);
 		const params = try allAs(2, args, f64);
@@ -76,6 +78,18 @@ pub const stdlib = struct {
 			else => {},
 		}
 		return error.TypeError;
+	}
+
+	pub fn printStack(e: *sl.Env) !void {
+		var stdout = std.fs.File.stdout().writer(&stdout_buf);
+
+		const stack = e.topStack();
+		for (stack.items, 0..) |*v, i| {
+			if (i > 0) _ = stdout.interface.write(", ") catch {};
+			stdout.interface.print("{f}", .{v.colorize()}) catch {};
+		}
+		_ = stdout.interface.write("\n") catch {};
+		stdout.interface.flush() catch {};
 	}
 };
 
