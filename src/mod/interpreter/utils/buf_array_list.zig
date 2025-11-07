@@ -64,7 +64,6 @@ pub fn BufArrayList(T: type, base_cap: comptime_int) type {
 			res.len = @intCast(slice.len);
 			@memcpy(res.short[0..@min(slice.len, base_cap)], slice[0..@min(base_cap, slice.len)]);
 			if (slice.len > base_cap) {
-				res.long = (try alloc.alloc(T, slice.len - base_cap)).ptr;
 				@memcpy(res.long.?[0..(slice.len - base_cap)], slice[base_cap..]);
 			}
 			return res;
