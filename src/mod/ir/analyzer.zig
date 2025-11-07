@@ -179,6 +179,7 @@ fn analyzeMatchNames(s: *AnyScanner(ASTNode), w: ObjWriter(MatchCheckNode), ctx:
 					}
 
 					try analyzeMatchNames(&child_s, child_w, ctx);
+					std.mem.reverse(MatchCheckNode, arr.items);
 
 					res.* = MatchCheckNode {
 						.root = block_root,
@@ -266,19 +267,17 @@ pub fn analyze(ast: ASTNode, w: ObjWriter(IRNode), ctx: Context) (AnalyzerError 
 			const res = try w.add();
 			errdefer _ = w.unadd();
 
-
-			var cases = std.array_list.Managed(IRNode.MatchCase).init(ctx.alloc);
+			var cases = try ctx.alloc.alloc(IRNode.MatchCase, ast_cases.len);
+			var n_done: usize = 0;
 			errdefer {
-				for (cases.items) |case| IRNode.deinitCase(case, ctx.alloc);
-				cases.deinit();
+				// free only the completed cases
+				for (cases[0..n_done]) |*case| IRNode.deinitCase(case.*, ctx.alloc);
+				ctx.alloc.free(cases);
 			}
 
-			for (ast_cases) |ast_case| {
+			for (ast_cases, 0..) |ast_case, i| {
 				const ast_names, const ast_body = ast_case;
-
-				const case = try cases.addOne();
-				errdefer IRNode.deinitCase(cases.pop().?, ctx.alloc);
-				case.* = .{&.{}, &.{}};
+				const case = &cases[i];
 
 				var names = std.array_list.Managed(MatchCheckNode).init(ctx.alloc);
 				const names_w = ObjWriter(MatchCheckNode).from_arr(&names);
@@ -295,13 +294,15 @@ pub fn analyze(ast: ASTNode, w: ObjWriter(IRNode), ctx: Context) (AnalyzerError 
 				}
 
 				try analyzeMatchNames(&names_r, names_w, ctx);
+				std.mem.reverse(MatchCheckNode, names.items);
 				for (ast_body) |node| try analyze(node, body_w, ctx);
 
 				case.* = .{try names.toOwnedSlice(), try body.toOwnedSlice()};
+				n_done += 1;
 			}
 
 			// TODO: give proper line information for match nodes
-			res.* = .init(undefined, .{.match = try cases.toOwnedSlice()});
+			res.* = .init(undefined, .{.match = cases});
 		}
 	}
 }
@@ -323,8 +324,12 @@ pub fn analyzeAll(asts: []const ASTNode, ctx: Context) (AnalyzerError || error {
 }
 
 fn print_m(matches: []const MatchCheckNode) void {
-	for (matches, 0..) |m, i| {
-		if (i > 0) std.debug.print(" ", .{});
+	var i = matches.len;
+	while (i > 0) {
+		if (i < matches.len) std.debug.print(" ", .{});
+		i -= 1;
+		const m = &matches[i];
+
 		if (m.name) |n| {
 			if (n.text.len == 0) std.debug.print("\x1b[32;2m_\x1b[0m", .{})
 			else std.debug.print("\x1b[32m{f}\x1b[0m", .{n});

@@ -71,10 +71,7 @@ pub fn findTailCalls(c: Context, block: []ir.IRNode) void {
 }
 
 fn findUnusedNamesBranches(c: Context, pattern: []ir.MatchCheckNode, scope: *Scope) std.mem.Allocator.Error!void {
-	// iterate through patterns in reverse order for proper semantics
-	var i = pattern.len;
-	while (i > 0) { i -= 1;
-		const check = &pattern[i];
+	for (pattern) |*check| {
 		if (check.name) |name| {
 			const p = try scope.info.getOrPut(c.temp, name);
 			if (p.found_existing) {

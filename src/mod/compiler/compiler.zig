@@ -99,10 +99,7 @@ fn genChecks(
 	opts: CompileOptions,
 ) !void {
 	// Add names and insert checks
-	var index = checks.len;
-	while (index > 0) {
-		index -= 1;
-		const check = checks[index];
+	for (checks) |*check| {
 		var add_pop = true;
 
 		if (check.name) |name| {
