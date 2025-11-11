@@ -84,7 +84,7 @@ fn findUnusedNamesBranches(c: Context, pattern: []ir.MatchCheckNode, scope: *Sco
 			}
 		}
 		switch (check.check) {
-			.none => {},
+			.none, .literal => {},
 			.regular => |code| {
 				try findUnusedNames(c, code, scope);
 			},

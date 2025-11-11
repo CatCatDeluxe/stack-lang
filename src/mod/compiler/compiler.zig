@@ -16,7 +16,7 @@ pub const debug_mode = true;
 pub const LocalIndex = u8;
 
 /// Any error emitted just from the compilation process.
-pub const Error = error {} || Name.Error;
+pub const Error = error {InvalidVariant} || Name.Error;
 
 pub const CompileOptions = struct {
 	temp_alloc: std.mem.Allocator,
@@ -54,31 +54,32 @@ fn genChecks(
 ) !void {
 	// Add names and insert checks
 	for (checks) |*check| {
+		const pos = check.root.position;
 		var add_pop = true;
 
 		if (check.name) |name| {
 			if (added_locals.get(name) != null) {
 				const local_index = ctx.scope.locals.get(name).?;
 				// existing name used -- check for equality instead
-				try func.append(.init(.push_local, check.root.position, local_index));
-				try func.append(.init(.test_equal, check.root.position, {}));
+				try func.append(.init(.push_local, pos, local_index));
+				try func.append(.init(.test_equal, pos, {}));
 				// test_equal pops the values automatically
 				add_pop = false;
 
 				// Store the index of an empty instruction, later it will be changed
 				// to a jump to the next branch
-				try func.appendJump(next_case, .init(.fail_check_if_false, check.root.position, undefined));
+				try func.appendJump(next_case, .init(.fail_check_if_false, pos, undefined));
 			} else {
 				// new name introduced -- add local
 				if (ctx.scope.locals.names.items.len == std.math.maxInt(u8)) {
-					opts.errors.pushError(.err, check.root.position,
+					opts.errors.pushError(.err, pos,
 						"Number of locals exceeded the maximum of {}",
 						.{std.math.maxInt(u8)});
 				}
 
 				_ = try added_locals.add(opts.temp_alloc, name);
 				_ = try ctx.scope.locals.add(opts.temp_alloc, name);
-				try func.append(.init(.add_local, check.root.position, {}));
+				try func.append(.init(.add_local, pos, {}));
 			}
 		}
 
@@ -86,33 +87,36 @@ fn genChecks(
 			.none => {},
 			.func_expand => |func_checks| {
 				ctx.has_temp_stacks = true;
-				//var func_next_case_jumps = JumpList.empty;
-				//defer func_next_case_jumps.deinit(opts.temp_alloc);
-
-				try func.append(.init(.push_temp_stack, check.root.position, 1));
-				try func.append(.init(.call, check.root.position, {}));
+				try func.append(.init(.push_temp_stack, pos, 1));
+				try func.append(.init(.call, pos, {}));
 				if (func_checks.len > 0) {
-					try func.append(.init(.check_stack_length, check.root.position, @intCast(func_checks.len)));
-					try func.appendJump(next_case, .init(.fail_check_if_false, check.root.position, undefined));
+					try func.append(.init(.check_stack_length, pos, @intCast(func_checks.len)));
+					try func.appendJump(next_case, .init(.fail_check_if_false, pos, undefined));
 				}
 
 				try genChecks(func, ctx, func_checks, added_locals, next_case, opts);
-				try func.append(.init(.pop_temp_stack, check.root.position, 0));
-				//if (func_next_case_jumps.jumps.items.len > 0) {
-					// jump past the other cleanup for failed branches
-					//try func.append(.init(.jump, check.root.position, 3));
-
-					//try func.append(.init(.pop_temp_stack, check.root.position, 0));
-					//try next_case_jumps.addJump(opts.temp_alloc, func, .fail_check);
-				//}
+				try func.append(.init(.pop_temp_stack, pos, 0));
 			},
 			.regular => |nodes| {
-				try func.append(.init(.push_temp_stack, check.root.position, 1));
+				try func.append(.init(.push_temp_stack, pos, 1));
 				for (nodes) |node| try compileIn(node, opts, func, ctx.captures, ctx.scope);
-				try func.append(.init(.pop_temp_stack, check.root.position, 1));
+				try func.append(.init(.pop_temp_stack, pos, 1));
 
 				// jump to the next branch if the result is not truthy
 				try func.appendJump(next_case, .init(.fail_check_if_false, check.root.position, undefined));
+			},
+			.literal => |v| {
+				add_pop = false;
+				switch (v) {
+					.num => |f| try func.append(.init(.push_float, pos, f)),
+					.symbol => |id| try func.append(.init(.push_sym, pos, id)),
+					else => {
+						opts.errors.pushError(.err, pos, "Invalid variant type for match: {s}", .{@tagName(v)});
+						return error.InvalidVariant;
+					},
+				}
+				try func.append(.init(.test_equal, pos, {}));
+				try func.appendJump(next_case, .init(.fail_check_if_false, pos, undefined));
 			}
 		}
 

@@ -450,6 +450,11 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 			}
 			return true;
 		},
+		.dup => {
+			const stack = self.topStack();
+			if (stack.items.len < 1) return error.StackEmpty;
+			try stack.append(self.alloc, stack.items[stack.items.len - 1].inc());
+		},
 		.pop => |n| {
 			const stack = self.topStack();
 			if (stack.items.len < n) return error.StackEmpty;

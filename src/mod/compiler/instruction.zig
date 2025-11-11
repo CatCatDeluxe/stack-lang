@@ -47,10 +47,10 @@ pub const Data = union(enum) {
 	tail_call,
 	/// Removes the top `n` values from the top of the stack.
 	pop: u8,
-
+	/// Duplicates the top value of the stack.
+	dup,
 	/// Jumps relatively `n` instructions.
 	jump: i16,
-
 	/// Sets the branch check list to the top `n` values from the stack.
 	/// Also pushes a local count, which should later be popped with `pop_local_count`
 	///

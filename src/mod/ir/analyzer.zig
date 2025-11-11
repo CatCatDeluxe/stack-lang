@@ -108,40 +108,28 @@ fn analyzeMatchNames(s: *AnyScanner(ASTNode), w: ObjWriter(MatchCheckNode), ctx:
 					return error.AnalyzerError;
 				},
 				.basic => |tk| {
-					s.advance(1);
-
 					// try to match equality for literals
-					switch (tk.type) {
-						.number, .symbol => {},
+					const variant: Variant = switch (tk.type) {
+						.number => Variant.fromPrimitive(
+							std.fmt.parseFloat(f64, tk.text) catch b: {
+								ctx.errs.pushError(.err, tk.position, "Invalid numeric literal: {s}", .{tk.text});
+								break :b 0;
+							}
+						),
+						.symbol => try getNameVariant(ctx, tk),
 						else => {
 							ctx.errs.pushError(.err, tk.position, "Unexpected token '{s}' as condition in match names", .{tk.text});
 							return error.AnalyzerError;
 						}
-					}
+					};
 
-					const inner = try w.add(); errdefer _ = w.unadd();
-					const equals_name = try ctx.alloc.dupe(u8, "="); errdefer ctx.alloc.free(equals_name);
-
-					var arr = std.array_list.Managed(IRNode).init(ctx.alloc); errdefer arr.deinit();
-					const child_w = ObjWriter(IRNode).from_arr(&arr);
-
-					try analyze(b.*, child_w, ctx);
-					try child_w.writeAll(&.{
-						IRNode {
-							.data = .{.push_named = Name.from(equals_name) catch unreachable},
-							.root = tk,
-						},
-						IRNode {
-							.data = .{.call = {}},
-							.root = tk,
-						}
+					try w.write(MatchCheckNode {
+						.name = own_name,
+						.check = .{.literal = variant},
+						.root = tk,
 					});
 
-					inner.* = MatchCheckNode {
-						.root = tk,
-						.name = own_name,
-						.check = .{.regular = try arr.toOwnedSlice()},
-					};
+					s.advance(1);
 				},
 				.block => |block| {
 					const res = try w.add();
@@ -219,18 +207,7 @@ pub fn analyze(ast: ASTNode, w: ObjWriter(IRNode), ctx: Context) (AnalyzerError 
 					try w.write(.init(tk, .{.push = .{.num = parsed}}));
 				},
 				.symbol => {
-					const sym_var = ctx.constants.syms.variant(tk.text)
-						catch |err| switch (err) {
-							error.SymbolLimitExceeded => {
-								ctx.errs.pushError(.err, tk.position, "Symbol limit exceeded!", .{});
-								return;
-							},
-							error.TooManySegments => {
-								ctx.errs.pushError(.err, tk.position, "Name has too many segments", .{});
-								return;
-							},
-							else => |e| return e,
-						};
+					const sym_var = try getNameVariant(ctx, tk);
 					try w.write(.init(tk, .{.push = sym_var}));
 				},
 				.sym_call => try w.write(.init(tk, .{.call = {}})),
@@ -347,6 +324,9 @@ fn print_m(matches: []const MatchCheckNode) void {
 				std.debug.print("\x1b[35m(\x1b[0m", .{});
 				print_ir(children);
 				std.debug.print("\x1b[35m)\x1b[0m", .{});
+			},
+			.literal => |v| {
+				std.debug.print("{f}", .{v.colorize()});
 			}
 		}
 	}
@@ -384,7 +364,22 @@ pub fn print_ir(nodes: []const IRNode) void {
 	}
 }
 
-fn parseName(errs: *ErrList, tk: Token) AnalyzerError!Name {
+fn getNameVariant(ctx: Context, tk: Token) !Variant {
+	return ctx.constants.syms.variant(tk.text)
+		catch |err| switch (err) {
+			error.SymbolLimitExceeded => {
+				ctx.errs.pushError(.err, tk.position, "Symbol limit exceeded", .{});
+				return error.AnalyzerError;
+			},
+			error.TooManySegments => {
+				ctx.errs.pushError(.err, tk.position, "Name has too many segments", .{});
+				return error.AnalyzerError;
+			},
+			else => |e| return e,
+		};
+}
+
+fn parseName(errs: *ErrList, tk: Token) !Name {
 	return Name.from(tk.text) catch |err| {
 		errs.pushError(.err, tk.position, "Invalid name '{s}': {s}", .{tk.text, @errorName(err)});
 		return AnalyzerError.AnalyzerError;

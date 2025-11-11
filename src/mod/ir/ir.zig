@@ -15,6 +15,9 @@ pub const MatchCheckNode = struct {
 		regular: []IRNode,
 		/// Matches the result of calling a function
 		func_expand: []MatchCheckNode,
+		/// Checks equality with a constant.
+		/// The variant should not have any allocated data.
+		literal: Variant,
 	},
 
 	pub fn deinit(self: MatchCheckNode, alloc: std.mem.Allocator) void {
@@ -28,7 +31,8 @@ pub const MatchCheckNode = struct {
 			.func_expand => |nodes| {
 				for (nodes) |n| n.deinit(alloc);
 				alloc.free(nodes);
-			}
+			},
+			.literal => {},
 		}
 	}
 };
