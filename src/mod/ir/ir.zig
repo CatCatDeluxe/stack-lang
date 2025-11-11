@@ -60,6 +60,12 @@ pub const IRNode = struct {
 
 	root: Token,
 	data: Data,
+	// /// Optional optimization data, which may or may not be present on the node.
+	//opt_data: ?*union {
+		//match: struct {
+
+		//},
+	//},
 
 	/// Utility function that deinitis a MatchCase.
 	pub fn deinitCase(case: MatchCase, alloc: std.mem.Allocator) void {

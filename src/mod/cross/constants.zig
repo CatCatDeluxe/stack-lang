@@ -81,8 +81,8 @@ pub fn deinit(self: Constants) void {
 /// returned value to add a function to this struct.
 pub fn createFunc(self: *Constants, filename: []const u8) CreateFunc {
 	return .{
-		.builder = self,
-		.insts = .init(self.alloc),
+		.constants = self,
+		.builder = .init(self.alloc),
 		.filename = filename,
 	};
 }
@@ -157,27 +157,22 @@ pub fn getNamed(self: @This(), in_name: Name) ?ID {
 }
 
 pub const CreateFunc = struct {
-	builder: *Constants,
-	insts: std.array_list.Managed(Instruction),
+	pub const Builder = @import("../compiler/funcs/create_func.zig");
+
+	constants: *Constants,
 	filename: []const u8,
-
-	pub fn add(self: *CreateFunc, i: Instruction) !void {
-		try self.insts.append(i);
-	}
-
-	/// Adds an instruction and returns its index.
-	pub fn addOne(self: *CreateFunc) !usize {
-		_ = try self.insts.addOne();
-		return self.insts.items.len - 1;
-	}
+	builder: Builder,
 
 	pub fn deinit(self: *CreateFunc) void {
-		self.insts.deinit();
+		self.builder.deinit();
 	}
 
+	/// Finishes the `CreateFunc`. `deinit()` does not need to be called after.
 	pub fn finish(self: *CreateFunc) !ID {
-		return try self.builder.addFunc(.{
-			.code = try self.insts.toOwnedSlice(),
+		const code = try self.builder.finalize(self.constants.alloc);
+		errdefer self.constants.alloc.free(code);
+		return try self.constants.addFunc(.{
+			.code = code,
 			.filename = self.filename,
 		});
 	}
