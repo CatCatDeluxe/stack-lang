@@ -60,7 +60,7 @@ pub const Variant = union(enum) {
 		captures: Rc([]Variant),
 	},
 	/// A builtin function. Modifies an interpreter's environment directly.
-	builtin: *const fn(env: *Env) (Env.InterpreterError || error {OutOfMemory})!void,
+	builtin: *const fn(env: *Env) (Env.Error || error {OutOfMemory})!void,
 
 	/// If the variant is not a `function_ref`, panics.
 	/// Copies `captures` into the function's own memory.

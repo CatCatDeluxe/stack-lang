@@ -8,7 +8,7 @@ const Variant = @import("../cross/variant.zig").Variant;
 const Rc = @import("../cross/variant.zig").Rc;
 const BufArrayList = @import("utils/buf_array_list.zig").BufArrayList;
 
-pub const InterpreterError = error {
+pub const Error = error {
 	StackEmpty,
 	StackStackEmpty,
 	InvalidInstruction,
@@ -178,7 +178,7 @@ pub fn deinit(self: *@This()) void {
 
 /// Adds the variant onto the stack frame. If it refers to a builtin function,
 /// no stack frame is created.
-pub fn call(self: *@This(), variant: Variant) (InterpreterError || std.mem.Allocator.Error)!void {
+pub fn call(self: *@This(), variant: Variant) (Error || std.mem.Allocator.Error)!void {
 	switch (variant) {
 		.builtin => |f| try f(self),
 		.function_instance, .function_ref => {
@@ -219,7 +219,7 @@ inline fn popStackCount(self: *@This()) void {
 inline fn failCheck(self: *@This(), jump_offs: usize) !void {
 	const frame = self.topFrame();
 
-	if (jump_offs == 0) return InterpreterError.MatchFailed;
+	if (jump_offs == 0) return Error.MatchFailed;
 	frame.position += jump_offs;
 
 	// Also retrieve the old local count
@@ -315,7 +315,7 @@ pub fn skip(self: *@This()) void {
 /// returns true. If there was no instruction to execute, returns false.
 /// Otherwise, an error is returned. The interpreter should be in a recoverable
 /// state as long as the returned error is not an OOM error.
-pub inline fn step(self: *@This()) (InterpreterError || std.mem.Allocator.Error)!bool {
+pub inline fn step(self: *@This()) (Error || std.mem.Allocator.Error)!bool {
 	if (!self.checkExit()) return false;
 	_ = try self.stepAssumeNext();
 	return true;
@@ -323,11 +323,11 @@ pub inline fn step(self: *@This()) (InterpreterError || std.mem.Allocator.Error)
 
 /// Does the same as `step`, but assumes there is a next instruction to execute.
 /// Returns whether the call stack changed.
-pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Error)!bool {
+pub fn stepAssumeNext(self: *@This()) (Error || std.mem.Allocator.Error)!bool {
 	const frame = self.topFrame();
 	const current = frame.code[frame.position];
 	switch (current.data) {
-		.invalid => return InterpreterError.InvalidInstruction,
+		.invalid => return Error.InvalidInstruction,
 		.breakpoint => {
 			return error.Breakpoint;
 		},
@@ -472,7 +472,7 @@ pub fn stepAssumeNext(self: *@This()) (InterpreterError || std.mem.Allocator.Err
 		.branch_check_begin => |params| {
 			const stack = self.topStack();
 			if (stack.items.len < params.n_locals) {
-				if (params.jump == 0) return InterpreterError.MatchFailed;
+				if (params.jump == 0) return Error.MatchFailed;
 				frame.position += params.jump;
 				// Return without incrementing the position any more
 				return false;

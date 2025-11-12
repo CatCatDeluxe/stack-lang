@@ -4,7 +4,7 @@ const sl = @import("../root.zig");
 
 inline fn require(e: *sl.Env, comptime n: comptime_int) !*[n]sl.Variant {
 	const s = e.topStack().items;
-	if (s.len < n) return error.StackEmpty;
+	if (s.len < n) return sl.Env.Error.StackEmpty;
 	return @ptrCast(s[s.len - n .. s.len]);
 }
 
@@ -13,7 +13,7 @@ inline fn allAs(comptime n: comptime_int, vars: *[n]sl.Variant, T: type) ![n]*T 
 		var res: [n]*T = undefined;
 		for (vars, 0..) |v, i| switch (v) {
 			.num => res[i] = &vars[i].num,
-			else => return error.TypeError,
+			else => return sl.Env.Error.TypeError,
 		};
 		return res;
 	}
@@ -34,6 +34,36 @@ pub const stdlib = struct {
 		const params = try allAs(2, args, f64);
 		e.topStack().items.len -= 2;
 		e.topStack().appendAssumeCapacity(.{.num = params[0].* - params[1].*});
+	}
+
+	pub fn @"*"(e: *sl.Env) !void {
+		const args = try require(e, 2);
+		const params = try allAs(2, args, f64);
+		e.topStack().items.len -= 2;
+		e.topStack().appendAssumeCapacity(.{.num = params[0].* * params[1].*});
+	}
+
+	pub fn @"/"(e: *sl.Env) !void {
+		const args = try require(e, 2);
+		const params = try allAs(2, args, f64);
+		e.topStack().items.len -= 2;
+		e.topStack().appendAssumeCapacity(.{.num = params[0].* / params[1].*});
+	}
+
+	pub fn @"%"(e: *sl.Env) !void {
+		const args = try require(e, 2);
+		const params = try allAs(2, args, f64);
+		e.topStack().items.len -= 2;
+		e.topStack().appendAssumeCapacity(.{.num = @mod(params[0].*, params[1].*)});
+	}
+
+	pub fn floor(e: *sl.Env) !void {
+		const s = e.topStack();
+		if (s.items.len < 1) return sl.Env.Error.StackEmpty;
+		switch (s.items[s.items.len - 1]) {
+			.num => |n| s.items[s.items.len - 1] = .fromPrimitive(std.math.floor(n)),
+			else => return sl.Env.Error.TypeError,
+		}
 	}
 
 	pub fn @"<"(e: *sl.Env) !void {
