@@ -110,6 +110,13 @@ pub const stdlib = struct {
 		return error.TypeError;
 	}
 
+	pub fn print(e: *sl.Env) !void {
+		const v = e.topStack().pop() orelse return sl.Env.Error.StackEmpty;
+		defer v.dec(e.alloc);
+		var stdout = std.fs.File.stdout().writer(&stdout_buf);
+		stdout.interface.print("{f}\n", .{v.colorize()}) catch {};
+	}
+
 	pub fn printStack(e: *sl.Env) !void {
 		var stdout = std.fs.File.stdout().writer(&stdout_buf);
 
