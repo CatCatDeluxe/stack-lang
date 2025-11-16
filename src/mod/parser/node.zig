@@ -9,6 +9,14 @@ pub const Node = union(enum) {
 	/// Contains information for a match. Has the name block and the child block.
 	pub const Match = struct { []Node, []Node, };
 
+	pub const Def = struct {
+		name: Token,
+		body: Node,
+		pub fn deinit(self: Def, alloc: std.mem.Allocator) void {
+			self.body.deinit(alloc);
+		}
+	};
+
 	/// A simple node that only needs one token of information.
 	basic: Token,
 	/// A list of matches, which consist of a name-list and a body.
@@ -19,6 +27,8 @@ pub const Node = union(enum) {
 	func_block: Block,
 	/// Any directive.
 	directive: struct {Token, Directive},
+	/// A list of definitions.
+	defs: struct {root: Token, defs: []Def},
 
 	pub fn matchDeinit(m: Match, alloc: std.mem.Allocator) void {
 		const names, const body = m;
@@ -31,6 +41,10 @@ pub const Node = union(enum) {
 	pub fn deinit(self: Node, alloc: std.mem.Allocator) void {
 		switch (self) {
 			.basic => {},
+			.defs => |defs| {
+				for (defs.defs) |def| def.deinit(alloc);
+				alloc.free(defs.defs);
+			},
 			.match => |matches| {
 				for (matches) |m| matchDeinit(m, alloc);
 				alloc.free(matches);
@@ -90,6 +104,15 @@ pub const Node = union(enum) {
 			.directive => |d| {
 				try out.print("#{s}", .{d.@"0".text});
 			},
+			.defs => |defs| {
+				try out.print("[\n", .{});
+				for (defs.defs) |def| {
+					try out.print("\x1b[32m{s}\x1b[0m :: ", .{def.name.text});
+					try print(def.body, out, indent + 1, sep);
+					try out.print(",\n", .{});
+				}
+				try out.print("]", .{});
+			}
 		}
 	}
 

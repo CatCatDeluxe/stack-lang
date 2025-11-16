@@ -7,6 +7,7 @@ const Charset = @import("../text/charset.zig");
 const o_writer = @import("../utils/o_writer.zig");
 const ObjWriter = o_writer.ObjWriter;
 const Directive = @import("../cross/directive.zig").Directive;
+const ErrorList = @import("../error_list.zig");
 
 /// Some kind of syntax error.
 pub const SyntaxError = error {InvalidCharacter, InvalidClosingBracket, UnknownDirective};
@@ -55,7 +56,7 @@ fn nodeWriter(arr: *ChildArr) ObjWriter(Node) {
 /// simple parser. returns the token that could not be handled. non-handleable
 /// token types include EOF, `|`, `:`, and closing brackets not used up by a
 /// contained block.
-fn parseSimpleExpr(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator) !Token {
+fn parseSimpleExpr(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator, errs: *ErrorList) !Token {
 	while (true) {
 		// the token that ended the basic expr.
 		const tk = try eatBasicExpr(s, w);
@@ -67,7 +68,7 @@ fn parseSimpleExpr(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator) !T
 				const child_w = nodeWriter(&children);
 				errdefer arrDeinit(&children, alloc);
 
-				const block_end_tk = try parseBlock(s, child_w, alloc);
+				const block_end_tk = try parseBlock(s, child_w, alloc, errs);
 				const node =
 					if (tk.type == .lbracket) Node {.block = .{tk, try children.toOwnedSlice()}}
 					else Node {.func_block = .{tk, try children.toOwnedSlice()}};
@@ -79,6 +80,24 @@ fn parseSimpleExpr(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator) !T
 
 				try w.write(node);
 			},
+			.lsquare => {
+				tk.eat(s);
+				var defs = std.array_list.Managed(Node.Def).init(alloc);
+				errdefer {
+					for (defs.items) |n| n.deinit(alloc);
+					defs.deinit();
+				}
+
+				const end = try parseDefs(s, ObjWriter(Node.Def).from_arr(&defs), alloc, errs);
+				if (end.type != .rsquare) {
+					errs.pushError(.err, tk.position, "Unmatched opening bracket", .{});
+					errs.pushError(.info, end.position, "(Expected closing bracket here)", .{});
+					return SyntaxError.InvalidClosingBracket;
+				}
+				const item = try w.add(); errdefer _ = w.unadd();
+				item.* = .{.defs = .{.root = tk, .defs = try defs.toOwnedSlice()}};
+				end.eat(s);
+			},
 			else => return tk,
 		}
 	}
@@ -88,7 +107,7 @@ fn parseSimpleExpr(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator) !T
 /// right of its colon and uses the array as its name-block.
 /// Returns the parsed match, and the token that caused parsing to end, and
 /// whether a colon was used in the text of the match.
-fn parseMatch(s: *Scanner, alloc: std.mem.Allocator, names: ?[]Node) !struct { Node.Match, Token, bool } {
+fn parseMatch(s: *Scanner, alloc: std.mem.Allocator, names: ?[]Node, errs: *ErrorList) !struct { Node.Match, Token, bool } {
 	var has_names = names != null;
 	var res = Node.Match {names orelse &.{}, &.{}};
 
@@ -104,7 +123,7 @@ fn parseMatch(s: *Scanner, alloc: std.mem.Allocator, names: ?[]Node) !struct { N
 	defer arrDeinit(&temp, alloc);
 
 	const end: Token = while (true) {
-		const end_tk = try parseSimpleExpr(s, temp_w, alloc);
+		const end_tk = try parseSimpleExpr(s, temp_w, alloc, errs);
 		switch (end_tk.type) {
 			.sym_colon => {
 				// TODO make another colon start another match
@@ -123,7 +142,7 @@ fn parseMatch(s: *Scanner, alloc: std.mem.Allocator, names: ?[]Node) !struct { N
 
 /// parses a block of code from `s` and writes the resulting AST nodes to `w`.
 /// Returns the token that caused parsing to end.
-pub fn parseBlock(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator) (SyntaxError || o_writer.Error)!Token {
+pub fn parseBlock(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator, errs: *ErrorList) (SyntaxError || o_writer.Error)!Token {
 	var match_list = std.array_list.Managed(Node.Match).init(alloc);
 	errdefer {
 		for (match_list.items) |m| Node.matchDeinit(m, alloc);
@@ -131,7 +150,7 @@ pub fn parseBlock(s: *Scanner, w: ObjWriter(Node), alloc: std.mem.Allocator) (Sy
 	}
 
 	const end: Token = while (true) {
-		const match, const end_tk, const used_colon = try parseMatch(s, alloc, null); // parse a match, ex. `a b c(1=) : a a b c`
+		const match, const end_tk, const used_colon = try parseMatch(s, alloc, null, errs); // parse a match, ex. `a b c(1=) : a a b c`
 
 		// The text "
 		// (
@@ -197,13 +216,47 @@ fn eatDirective(dir: Token, s: *Scanner) !Directive {
 	return error.UnknownDirective;
 }
 
+pub fn parseDefs(s: *Scanner, w: ObjWriter(Node.Def), alloc: std.mem.Allocator, errs: *ErrorList) (SyntaxError || o_writer.Error)!Token {
+	while (true) {
+		_ = s.eatIn(Token.chars_whitespace);
+		const name = Token.read(s.*) orelse return SyntaxError.InvalidCharacter;
+		if (!name.type.isName()) return name;
+		name.eat(s);
+
+		_ = s.eatIn(Token.chars_whitespace);
+		const sep = Token.read(s.*) orelse return SyntaxError.InvalidCharacter;
+		if (sep.type != .sym_double_colon) {
+			errs.pushError(.err, s.state, "Expected '::', got '{s}'", .{sep.text});
+			return SyntaxError.InvalidCharacter;
+		}
+		sep.eat(s);
+
+		var body_arr = std.array_list.Managed(Node).init(alloc);
+		errdefer {
+			for (body_arr.items) |n| n.deinit(alloc);
+			body_arr.deinit();
+		}
+		const body_w = ObjWriter(Node).from_arr(&body_arr);
+		const end = try parseBlock(s, body_w, alloc, errs);
+
+		const item = try w.add(); errdefer _ = w.unadd();
+		item.* = .{
+			.name = name,
+			.body = Node {.block = .{sep, try body_arr.toOwnedSlice()}},
+		};
+
+		if (end.type != .sym_comma) return end;
+		end.eat(s);
+	}
+}
+
 /// Parses an entire file's text.
-pub fn parseText(text: []const u8, alloc: std.mem.Allocator, errs: *@import("../error_list.zig")) (SyntaxError || error {OutOfMemory})![]Node {
+pub fn parseText(text: []const u8, alloc: std.mem.Allocator, errs: *ErrorList) (SyntaxError || error {OutOfMemory})![]Node {
 	var arr = std.array_list.Managed(Node).init(alloc);
 	const writer = ObjWriter(Node).from_arr(&arr);
 	var scanner = Scanner {.text = text};
 
-	const end_token = parseBlock(&scanner, writer, alloc) catch |err| switch (err) {
+	const end_token = parseBlock(&scanner, writer, alloc, errs) catch |err| switch (err) {
 		error.WriteFailed => unreachable,
 		else => |e| {
 			errs.pushError(.err, scanner.state, "Parse error: {s}", .{@errorName(err)});

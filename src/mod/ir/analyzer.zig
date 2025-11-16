@@ -175,7 +175,10 @@ fn analyzeMatchNames(s: *AnyScanner(ASTNode), w: ObjWriter(MatchCheckNode), ctx:
 						.check = .{.func_expand = try arr.toOwnedSlice()}
 					};
 					s.advance(1);
-				}
+				},
+				.defs => |d| {
+					ctx.errs.pushError(.err, d.root.position, "Namespace literal cannot be present in match names", .{});
+				},
 			}
 		} else {
 			try w.write(.{
@@ -280,7 +283,8 @@ pub fn analyze(ast: ASTNode, w: ObjWriter(IRNode), ctx: Context) (AnalyzerError 
 
 			// TODO: give proper line information for match nodes
 			res.* = .init(undefined, .{.match = cases});
-		}
+		},
+		.defs => unreachable, // TODO: Handle parsing namespaces
 	}
 }
 

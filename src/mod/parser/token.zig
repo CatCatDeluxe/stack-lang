@@ -38,6 +38,10 @@ pub const Type = enum {
 	sym_pipe,
 	/// An operator used to call the top value of the stack.
 	sym_call,
+	/// Used to separate definitions
+	sym_comma,
+	/// Used in definitions
+	sym_double_colon,
 	/// An operator used to call the second-to-top value of the stack
 	/// conditionally, based on the top value.
 	sym_call_cond,
@@ -56,6 +60,10 @@ pub const Type = enum {
 	empty,
 	/// Used to indicate something outside of regular code
 	directive,
+
+	pub fn isName(t: Type) bool {
+		return t == .name_regular or t == .name_operator;
+	}
 
 	/// Returns the opening/closing counterpart to a closing/opening token type.
 	/// If the token type does not have a counterpart, panics.
@@ -191,6 +199,21 @@ pub fn read(p_in: Scanner) ?Token {
 		};
 	}
 
+	if (c == ':') {
+		if (p.peekc(1) == ':') {
+			return .{
+				.type = .sym_double_colon,
+				.position = p.state,
+				.text = p.eat(2),
+			};
+		}
+		return .{
+			.type = .sym_colon,
+			.position = p.state,
+			.text = p.eat(1),
+		};
+	}
+
 	// Names may start only with a..z.
 	// They may then contain an arbitrary amount blocks of a..z and 0..9,
 	// and these blocks may be separated by a single '-' or '_'. Trailing '-'
@@ -215,9 +238,9 @@ pub fn read(p_in: Scanner) ?Token {
 		'}' => .new(&p, .rcurly, 1),
 		'[' => .new(&p, .lsquare, 1),
 		']' => .new(&p, .rsquare, 1),
-		':' => .new(&p, .sym_colon, 1),
 		'|' => .new(&p, .sym_pipe, 1),
 		'.' => .new(&p, .sym_dot, 1),
+		',' => .new(&p, .sym_comma, 1),
 		else => null,
 	};
 }
