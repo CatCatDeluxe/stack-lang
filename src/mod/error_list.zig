@@ -3,6 +3,21 @@ const FileCache = @import("cross/file_cache.zig");
 
 pub const ErrorLevel = enum { info, warning, err };
 
+const Position = struct {
+	pos: usize,
+	line: u32,
+	col: u32,
+
+	pub fn any(from: anytype) Position {
+		const From = @TypeOf(from);
+		return .{
+			.pos = @intCast(if (@hasField(From, "position")) from.position else from.pos),
+			.line = @intCast(from.line),
+			.col = @intCast(from.col),
+		};
+	}
+};
+
 const Error = struct {
 	/// What kind of error it is
 	level: ErrorLevel,
@@ -13,7 +28,7 @@ const Error = struct {
 	/// The character position from the start of the file.
 	pos: usize,
 	/// The line the error occurred on. Starts at 0.
-	line: usize,
+	line: u32,
 	/// The column the error occurred on. Starts at 0.
 	col: u32,
 
@@ -42,17 +57,41 @@ alloc: std.mem.Allocator,
 errors: std.ArrayList(Error),
 /// The currently compiling file. The string does not need to stay alive after
 /// this name is changed.
-current_filename: ?[]const u8,
+current_filename: []const u8,
 /// Stores the current execution step, to print in errors. The string should
 /// last as long as the error list object.
 current_step: []const u8 = "",
+/// The current stack of positions.
+positions: std.ArrayList(Position),
 
 pub fn init(alloc: std.mem.Allocator) @This() {
 	return .{
 		.alloc = alloc,
 		.errors = .empty,
-		.current_filename = null
+		.positions = .empty,
+		.current_filename = "",
 	};
+}
+
+/// Saves a new position to the stack.
+pub fn pushPos(self: *@This(), pos: anytype) void {
+	self.positions.append(self.alloc, .any(pos)) catch {};
+}
+
+/// Gets the last saved position.
+pub fn getPos(self: @This()) Position {
+	return self.positions.getLastOrNull() orelse .{.pos = 0, .line = 0, .col = 0};
+}
+
+/// Overwrites the last saved position.
+pub fn setPos(self: @This(), pos: anytype) void {
+	if (self.positions.items.len == 0) return;
+	self.positions.items[self.positions.items.len - 1] = .any(pos);
+}
+
+/// Pops the last saved position.
+pub fn popPos(self: *@This()) Position {
+	return self.positions.pop() orelse .{.pos = 0, .line = 0, .col = 0};
 }
 
 /// Tries to push an error to the error list. If an operation fails, this function
@@ -74,16 +113,18 @@ pub fn ePushError(self: *@This(), level: ErrorLevel, position: anytype, comptime
 
 	try buf.print(self.alloc, format, format_args);
 
-	const filename = if (self.current_filename) |f| try self.alloc.dupe(u8, f) else null;
-	errdefer if (filename) |f| self.alloc.free(f);
+	const filename = try self.alloc.dupe(u8, self.current_filename);
+	errdefer self.alloc.free(filename);
+
+	const pos = Position.any(position);
 
 	try self.errors.append(self.alloc, .{
 		.level = level,
 		.step = self.current_step,
 		.text = try buf.toOwnedSlice(self.alloc),
-		.line = @intCast(position.line),
-		.col = @intCast(position.col),
-		.pos = if (@hasField(@TypeOf(position), "pos")) @intCast(position.pos) else @intCast(position.position),
+		.line = pos.line,
+		.col = pos.col,
+		.pos = pos.pos,
 		.filename = filename,
 	});
 }
@@ -95,6 +136,7 @@ pub fn clear(self: *@This()) void {
 		if (err.filename) |f| self.alloc.free(f);
 	}
 	self.errors.clearAndFree(self.alloc);
+	self.positions.clearAndFree(self.alloc);
 }
 
 /// Prints an error list.
