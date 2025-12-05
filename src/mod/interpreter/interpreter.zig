@@ -382,7 +382,7 @@ pub fn stepAssumeNext(self: *@This()) (Error || std.mem.Allocator.Error)!bool {
 			const function = self.topStack().pop() orelse return error.StackEmpty;
 			// When not returning an error, the memory in the variant is
 			// handled in more specific ways and this is not needed.
-			errdefer function.dec(self.alloc);
+			defer function.dec(self.alloc);
 
 			switch (function) {
 				.function_ref => |id| {
@@ -414,14 +414,11 @@ pub fn stepAssumeNext(self: *@This()) (Error || std.mem.Allocator.Error)!bool {
 					const func = self.constants.functions.items[data.id];
 					self.exitFrame(frame.*);
 
-					// if the captures are the same, we can skip incrementing and decrementing
-					if (data.captures != frame.captures) {
-						// (don't decrement dat.captures because we are just moving it into the new stack frame)
-						if (frame.captures) |captures| {
-							if (captures.dec(self.alloc)) |slice| {
-								for (slice) |*v| v.dec(self.alloc);
-								self.alloc.free(slice);
-							}
+					_ = data.captures.inc();
+					if (frame.captures) |captures| {
+						if (captures.dec(self.alloc)) |slice| {
+							for (slice) |*v| v.dec(self.alloc);
+							self.alloc.free(slice);
 						}
 					}
 
@@ -525,7 +522,6 @@ pub fn stepAssumeNext(self: *@This()) (Error || std.mem.Allocator.Error)!bool {
 			_ = frame.local_counts.pop();
 		},
 		.push_temp_stack => |ncopy| {
-			// TODO: make sure that it's ok to not increase the variant's reference counts here
 			if (self.topStack().items.len < ncopy) return error.StackEmpty;
 			const new = try self.stacks.addOne(self.alloc);
 			errdefer _ = self.stacks.pop();
