@@ -32,7 +32,7 @@ fn eatBasicExpr(s: *Scanner, w: ObjWriter(Node)) !Token {
 			},
 			// All token types included in a basic expression
 			.name_operator, .name_regular, .number, .sym_call,
-			.sym_call_cond, .sym_this_func, .sym_dot, .symbol => {},
+			.sym_this_func, .sym_dot, .symbol => {},
 			else => return tk,
 		}
 		try w.write(.{.basic = tk});

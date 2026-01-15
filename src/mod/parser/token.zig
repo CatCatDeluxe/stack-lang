@@ -42,9 +42,6 @@ pub const Type = enum {
 	sym_comma,
 	/// Used in definitions
 	sym_double_colon,
-	/// An operator used to call the second-to-top value of the stack
-	/// conditionally, based on the top value.
-	sym_call_cond,
 	/// An operator that returns a reference to the current function.
 	sym_this_func,
 	/// Some text that can be parsed as a number.
