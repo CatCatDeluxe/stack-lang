@@ -92,7 +92,7 @@ const commands = struct {
 		const func_var_id = sl.compileFunction(c.constants, .{
 			.code = code,
 			.errs = &errs,
-			.filename = errs.current_filename.?,
+			.filename = errs.current_filename,
 			.temp_alloc = arena.allocator(),
 		}) catch |err| e: {
 			try errs.ePushError(.err, .{.line = 0, .col = 0, .position = 0}, "fatal error: {s}", .{@errorName(err)});

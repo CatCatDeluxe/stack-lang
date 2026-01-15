@@ -89,7 +89,7 @@ pub fn main() !void {
 	}
 
 	// Parse step
-	errors.current_filename = args.positional.file;
+	errors.current_filename = args.positional.file orelse "<unknown>";
 	errors.current_step = "parser";
 	var ast_alloc = std.heap.ArenaAllocator.init(alloc); defer ast_alloc.deinit();
 	const ast = sl.parser.parseText(main_text, ast_alloc.allocator(), &errors)
