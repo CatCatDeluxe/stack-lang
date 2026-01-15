@@ -1,5 +1,6 @@
 //! Caches file names and contents while the interpreter is running.
 const std = @import("std");
+const text = @import("../text/text.zig");
 
 alloc: std.mem.Allocator,
 files: std.StringHashMap([]u8).Unmanaged,
@@ -12,7 +13,8 @@ pub fn init(alloc: std.mem.Allocator) @This() {
 }
 
 /// Opens the file at `path` and adds it to the FileCache.
-pub fn open(self: *@This(), path: []const u8) (std.fs.File.OpenError || std.fs.File.ReadError || std.mem.Allocator.Error)![]const u8 {
+/// Does some light preprocessing, like removing all unrecognized whitespace characters.
+pub fn open(self: *@This(), path: []const u8) (std.fs.File.OpenError || std.fs.File.ReadError || std.mem.Allocator.Error)![]u8 {
 	const kv = try self.files.getOrPut(self.alloc, path);
 	if (kv.found_existing) return kv.value_ptr.*;
 
@@ -25,6 +27,7 @@ pub fn open(self: *@This(), path: []const u8) (std.fs.File.OpenError || std.fs.F
 	const buf = try self.alloc.alloc(u8, try file.getEndPos());
 	errdefer self.alloc.free(buf);
 	_ = try file.readAll(buf);
+	_ = text.removeCr(buf);
 
 	kv.value_ptr.* = buf;
 	return buf;

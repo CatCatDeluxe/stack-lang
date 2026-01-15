@@ -252,6 +252,19 @@ pub const Context = struct {
 	in: *std.Io.Reader,
 	/// Used internally. Don't worry about it.
 	quit: *bool = undefined,
+
+	fn readline(self: Context) ![]u8 {
+		// compat for 0.15.1 and 0.15.2
+		// remove once 0.15.1 is not supported
+		const take =
+			if (comptime @import("builtin").zig_version.order(try .parse("0.15.2")) == .lt)
+				std.Io.Reader.takeDelimiterInclusive
+			else
+				std.Io.Reader.takeDelimiter;
+
+		const buf = try take(self.in, '\n');
+		return sl.text.removeCr(buf[0..buf.len - 1]);
+	}
 };
 
 /// Parses and runs a command. Returns the name of the command that was run.
@@ -303,7 +316,7 @@ pub fn repl(ctx_in: Context) !void {
 	while (!quit) {
 		try ctx.out.print("> ", .{});
 		try ctx.out.flush();
-		const input = try ctx.in.takeDelimiterExclusive('\n');
+		const input = try ctx.readline();
 
 		var s = sl.text.Scanner {.text = input};
 		_ = s.eatIn(sl.parser.Token.chars_whitespace);
@@ -334,7 +347,7 @@ pub fn debug(ctx_in: Context) !void {
 	while (!quit) {
 		try ctx.out.print("> ", .{});
 		try ctx.out.flush();
-		const input = try ctx.in.takeDelimiterExclusive('\n');
+		const input = try ctx.readline();
 
 		var s = sl.text.Scanner {.text = input};
 		try parseAndRunCommand(ctx, &s);
