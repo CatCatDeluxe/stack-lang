@@ -2,46 +2,6 @@ const std = @import("std");
 const Env = @import("../interpreter/interpreter.zig");
 const Symbols = @import("symbols.zig");
 
-/// A basic implementation of a ref-counted pointer.
-/// Does not do anything about cyclic references.
-pub fn Rc(T: type) type {
-	return *struct {
-		val: T,
-		refcount: u32,
-
-		/// Increases the reference count. Use this when storing the refc
-		/// somewhere it will later be removed from.
-		/// Returns the same pointer that was passed in.
-		pub fn inc(self: *@This()) *@This() {
-			self.refcount += 1;
-			return self;
-		}
-
-		/// Decreases the reference count. If the count reaches 0, returns a
-		/// copy of the contained instance, and frees the pointer to this
-		/// instance.
-		pub fn dec(self: *@This(), alloc: std.mem.Allocator) ?T {
-			if (self.refcount <= 1) {
-				const res = self.val;
-				alloc.destroy(self);
-				return res;
-			}
-			self.refcount -= 1;
-			return null;
-		}
-	};
-}
-
-fn RcInner(T: type) type {
-	const Res = Rc(T);
-	return @typeInfo(Res).pointer.child;
-}
-
-pub fn rc(val: anytype, alloc: std.mem.Allocator) !Rc(@TypeOf(val)) {
-	const res = try alloc.create(RcInner(@TypeOf(val)));
-	res.* = .{.val = val, .refcount = 1};
-	return res;
-}
 
 /// A variant. May be used to store a value at compile-time, or be used in the
 /// interpreter. For simplicity, the same type is used to store values at
@@ -177,3 +137,44 @@ const Colorize = struct {
 		}
 	}
 };
+
+/// A basic implementation of a ref-counted pointer.
+/// Does not do anything about cyclic references.
+pub fn Rc(T: type) type {
+	return *struct {
+		val: T,
+		refcount: u32,
+
+		/// Increases the reference count. Use this when storing the refc
+		/// somewhere it will later be removed from.
+		/// Returns the same pointer that was passed in.
+		pub fn inc(self: *@This()) *@This() {
+			self.refcount += 1;
+			return self;
+		}
+
+		/// Decreases the reference count. If the count reaches 0, returns a
+		/// copy of the contained instance, and frees the pointer to this
+		/// instance.
+		pub fn dec(self: *@This(), alloc: std.mem.Allocator) ?T {
+			if (self.refcount <= 1) {
+				const res = self.val;
+				alloc.destroy(self);
+				return res;
+			}
+			self.refcount -= 1;
+			return null;
+		}
+	};
+}
+
+fn RcInner(T: type) type {
+	const Res = Rc(T);
+	return @typeInfo(Res).pointer.child;
+}
+
+pub fn rc(val: anytype, alloc: std.mem.Allocator) !Rc(@TypeOf(val)) {
+	const res = try alloc.create(RcInner(@TypeOf(val)));
+	res.* = .{.val = val, .refcount = 1};
+	return res;
+}

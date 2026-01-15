@@ -2,11 +2,23 @@
 //! the current execution state.
 const std = @import("std");
 const Instruction = @import("../compiler/instruction.zig");
-
 const Constants = @import("../cross/constants.zig");
 const Variant = @import("../cross/variant.zig").Variant;
 const Rc = @import("../cross/variant.zig").Rc;
 const BufArrayList = @import("utils/buf_array_list.zig").BufArrayList;
+
+/// The working allocator while executing.
+alloc: std.mem.Allocator,
+/// The constants for the environment.
+constants: *const Constants,
+/// The stack of temp stacks. The first element is the main stack.
+/// Items from lower stacks than the top one should never be accessed!
+stacks: std.ArrayList(Stack),
+/// The call stack.
+frames: std.ArrayList(Frame),
+/// The stack backups created by match branches. When adding or removing from
+/// this list, make sure to update the current frame's count of stack backups!
+stack_backups: std.ArrayList(StackBackup) = .empty,
 
 pub const Error = error {
 	StackEmpty,
@@ -136,19 +148,6 @@ fn loadStackBackup(self: *@This(), backup: *StackBackup) !void {
 	}
 	backup.items.deinit(self.alloc);
 }
-
-/// The working allocator while executing.
-alloc: std.mem.Allocator,
-/// The constants for the environment.
-constants: *const Constants,
-/// The stack of temp stacks. The first element is the main stack.
-/// Items from lower stacks than the top one should never be accessed!
-stacks: std.ArrayList(Stack),
-/// The call stack.
-frames: std.ArrayList(Frame),
-/// The stack backups created by match branches. When adding or removing from
-/// this list, make sure to update the current frame's count of stack backups!
-stack_backups: std.ArrayList(StackBackup) = .empty,
 
 pub fn init(alloc: std.mem.Allocator, constants: *const Constants) !@This() {
 	var res = @This() {

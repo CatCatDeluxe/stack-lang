@@ -5,6 +5,12 @@ const Charset = @import("charset.zig");
 const Scanner = @import("scanner.zig");
 const Name = @This();
 
+/// The name's text. This is not managed by the name.
+text: []const u8,
+/// The segments, as slices of the original text.
+segment_buf: [max_segment_count]Slice,
+segment_count: u8,
+
 pub const max_segment_count = 12;
 pub const Error = error {TooManySegments};
 
@@ -24,12 +30,6 @@ const Slice = packed struct {
 		};
 	}
 };
-
-/// The name's text. This is not managed by the name.
-text: []const u8,
-/// The segments, as slices of the original text.
-segment_buf: [max_segment_count]Slice,
-segment_count: u8,
 
 pub fn from(text: []const u8) Error!Name {
 	var res = Name {

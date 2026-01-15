@@ -3,6 +3,13 @@ const std = @import("std");
 const Charset = @import("charset.zig");
 const Location = @import("location.zig");
 
+/// The text the parser reads.
+text: []const u8,
+/// The current position state of the parser. Do not rewind the parser by decreasing the position!
+/// This can cause the line number to be off from what it actually is. Instead, copy the state object
+/// and go forward. If you need to go backwards, set the state to the previously copied object.
+state: State = .{.position = 0, .line = 1, .col = 1, .indent_level = 0, .increase_indent = true, .pre_spacing = 0},
+
 pub const State = struct {
 	position: usize,
 	line: u32,
@@ -15,14 +22,6 @@ pub const State = struct {
 	/// characters.
 	increase_indent: bool
 };
-
-/// The text the parser reads.
-text: []const u8,
-
-/// The current position state of the parser. Do not rewind the parser by decreasing the position!
-/// This can cause the line number to be off from what it actually is. Instead, copy the state object
-/// and go forward. If you need to go backwards, set the state to the previously copied object.
-state: State = .{.position = 0, .line = 1, .col = 1, .indent_level = 0, .increase_indent = true, .pre_spacing = 0},
 
 pub fn valid(self: @This()) bool {
 	return self.state.position < self.text.len;

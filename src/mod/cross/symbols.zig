@@ -4,14 +4,14 @@ const Name = @import("../text/name.zig");
 const Variant = @import("variant.zig").Variant;
 const Symbols = @This();
 
+alloc: std.mem.Allocator,
+name_to_id: NameHash.Unmanaged,
+names: std.ArrayList(Name),
+
 pub const SymbolID = u16;
 pub const Error = error {SymbolLimitExceeded};
 pub const max_symbol_count = std.math.maxInt(SymbolID);
 pub const NameHash = std.HashMap(Name, SymbolID, Name.HashContext, 80);
-
-alloc: std.mem.Allocator,
-name_to_id: NameHash.Unmanaged,
-names: std.ArrayList(Name),
 
 pub fn init(alloc: std.mem.Allocator) Symbols {
 	return .{

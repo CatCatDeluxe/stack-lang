@@ -1,8 +1,9 @@
 //! Stores a bit for each possible u8.
 const std = @import("std");
-const one: u256 = 1;
 
 mask: u256,
+
+const one: u256 = 1;
 
 pub fn set(values: anytype) @This() {
 	var res = @This() {.mask = 0};

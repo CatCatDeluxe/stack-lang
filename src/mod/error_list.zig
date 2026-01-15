@@ -1,6 +1,17 @@
 const std = @import("std");
 const FileCache = @import("cross/file_cache.zig");
 
+alloc: std.mem.Allocator,
+errors: std.ArrayList(Error),
+/// The currently compiling file. The string does not need to stay alive after
+/// this name is changed.
+current_filename: []const u8,
+/// Stores the current execution step, to print in errors. The string should
+/// last as long as the error list object.
+current_step: []const u8 = "",
+/// The current stack of positions.
+positions: std.ArrayList(Position),
+
 pub const ErrorLevel = enum { info, warning, err };
 
 const Position = struct {
@@ -52,17 +63,6 @@ const Error = struct {
 		try writer.print("\x1b[0m) {s}", .{self.text});
 	}
 };
-
-alloc: std.mem.Allocator,
-errors: std.ArrayList(Error),
-/// The currently compiling file. The string does not need to stay alive after
-/// this name is changed.
-current_filename: []const u8,
-/// Stores the current execution step, to print in errors. The string should
-/// last as long as the error list object.
-current_step: []const u8 = "",
-/// The current stack of positions.
-positions: std.ArrayList(Position),
 
 pub fn init(alloc: std.mem.Allocator) @This() {
 	return .{

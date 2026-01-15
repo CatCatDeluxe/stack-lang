@@ -7,6 +7,16 @@ const Name = @import("../text/name.zig");
 const Symbols = @import("symbols.zig");
 const Constants = @This();
 
+alloc: std.mem.Allocator,
+functions: std.ArrayList(Function) = .empty,
+globals: std.ArrayList(Variant) = .empty,
+/// Maps string names to global IDs. The names are owned by `self.syms`.
+names: std.HashMap(Name, ID, Name.HashContext, 80).Unmanaged = .empty,
+/// Caches function contents to existing IDs, to avoid duplicating functions.
+contents_hash: CodeHash.Unmanaged = .empty,
+/// Stores the symbols for the builder.
+syms: Symbols,
+
 /// Hash map with bytecode as a key.
 const CodeHash = std.HashMap([]const Instruction, ID, struct {
 	pub fn hash(_: @This(), arr: []const Instruction) u64 {
@@ -41,16 +51,6 @@ pub const Function = struct {
 		alloc.free(self.code);
 	}
 };
-
-alloc: std.mem.Allocator,
-functions: std.ArrayList(Function) = .empty,
-globals: std.ArrayList(Variant) = .empty,
-/// Maps string names to global IDs. The names are owned by `self.syms`.
-names: std.HashMap(Name, ID, Name.HashContext, 80).Unmanaged = .empty,
-/// Caches function contents to existing IDs, to avoid duplicating functions.
-contents_hash: CodeHash.Unmanaged = .empty,
-/// Stores the symbols for the builder.
-syms: Symbols,
 
 pub fn init(alloc: std.mem.Allocator) Constants {
 	return .{
