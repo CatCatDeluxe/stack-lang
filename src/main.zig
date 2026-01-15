@@ -211,14 +211,8 @@ pub fn main() !void {
 		while (frame.position < frame.code.len) {
 			const stack_changed = env.stepAssumeNext() catch |err| {
 				errors.current_filename = env.getFilename(env.topFrame().*) orelse "<unknown>";
-				const i_pos =
-					if (frame.position < frame.code.len) frame.code[frame.position].position
-					else @TypeOf(frame.code[0].position) {.line = 0, .col = 0, .position = 0};
 
-				errors.pushError(.err, i_pos, "{s}", .{@errorName(err)});
-				try errors.printTo(&stderr.interface, &files);
-				try stderr.interface.flush();
-				errors.clear();
+				sl.Env.error_handling.logStackTrace(env, &errors, "fatal error: {s}", .{@errorName(err)});
 
 				if (args.debug_on_fail) {
 					try stderr.interface.print("\x1b[2;3mEntering debugger\x1b[0m\n", .{});

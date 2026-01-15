@@ -20,6 +20,8 @@ frames: std.ArrayList(Frame),
 /// this list, make sure to update the current frame's count of stack backups!
 stack_backups: std.ArrayList(StackBackup) = .empty,
 
+pub const error_handling = @import("error_handling.zig");
+
 pub const Error = error {
 	StackEmpty,
 	StackStackEmpty,
