@@ -14,7 +14,7 @@ pub fn init(alloc: std.mem.Allocator) @This() {
 
 /// Opens the file at `path` and adds it to the FileCache.
 /// Does some light preprocessing, like removing all unrecognized whitespace characters.
-pub fn open(self: *@This(), path: []const u8) (std.fs.File.OpenError || std.fs.File.ReadError || std.mem.Allocator.Error)![]u8 {
+pub fn open(self: *@This(), path: []const u8) (std.fs.File.OpenError || std.fs.File.ReadError || std.mem.Allocator.Error)![]const u8 {
 	const kv = try self.files.getOrPut(self.alloc, path);
 	if (kv.found_existing) return kv.value_ptr.*;
 
