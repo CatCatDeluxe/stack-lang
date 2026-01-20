@@ -34,6 +34,7 @@ pub fn main() !void {
 				.show = "Shows the info for a specified compilation step and then exits.",
 				.debug = "Prints each instruction being executed, and provides debugging features",
 				.nostd = "Don't include the standard library",
+				.evaluate = "Directly evaluates the given string as source code, instead of a file.",
 			};
 
 			positional: struct {
@@ -49,10 +50,12 @@ pub fn main() !void {
 					.ast = "Prints the AST.",
 					.ir = "Prints the IR.",
 					.bytecode = "Prints out the instructions for each function.",
+					.none = "Runs normally.",
 				};
 				none, ast, ir, bytecode
 			} = .none,
 
+			evaluate: ?[]const u8,
 			nostd: bool = false,
 			debug: bool = false,
 			debug_on_fail: bool = false,
@@ -61,6 +64,7 @@ pub fn main() !void {
 			pub const switches = .{
 				.debug = 'd',
 				.debug_on_fail = 'D',
+				.evaluate = 'e',
 			};
 		},
 		.{});
@@ -73,8 +77,9 @@ pub fn main() !void {
 	var files = sl.FileCache.init(file_alloc.allocator());
 
 	const main_text =
-		if (args.positional.file) |filename|
-			files.open(filename) catch |err| {
+		if (args.evaluate) |eval_text| try files.createFake("(eval)", eval_text)
+		else if (args.positional.file) |filename| files.open(filename)
+			catch |err| {
 				std.log.err(
 					"Error: Could not open file '{s}': {s}\n",
 					.{filename, @errorName(err)});
@@ -181,7 +186,7 @@ pub fn main() !void {
 	var dbg_stdin = std.fs.File.stdin().reader(staticBuffer(2048));
 
 	// enter repl mode if there is no file
-	if (args.positional.file == null) {
+	if (args.positional.file == null and args.evaluate == null) {
 		try stderr.interface.print("\x1b[2;3mEntering REPL.\n\x1b[0m", .{});
 		try dbg.repl(.{
 			.constants = &constants,

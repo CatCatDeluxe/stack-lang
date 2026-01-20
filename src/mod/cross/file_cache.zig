@@ -12,6 +12,17 @@ pub fn init(alloc: std.mem.Allocator) @This() {
 	};
 }
 
+/// Creates a fake file with any path and contents. The filename and contents are cloned and the owned text is returned.
+pub fn createFake(self: *@This(), fake_path: []const u8, file_text: []const u8) std.mem.Allocator.Error![]const u8 {
+	const kv = try self.files.getOrPut(self.alloc, fake_path);
+	errdefer _ = self.files.remove(fake_path);
+
+	kv.key_ptr.* = try self.alloc.dupe(u8, fake_path);
+	errdefer self.alloc.free(kv.key_ptr.*);
+	kv.value_ptr.* = try self.alloc.dupe(u8, file_text);
+	return kv.value_ptr.*;
+}
+
 /// Opens the file at `path` and adds it to the FileCache.
 /// Does some light preprocessing, like removing all unrecognized whitespace characters.
 pub fn open(self: *@This(), path: []const u8) (std.fs.File.OpenError || std.fs.File.ReadError || std.mem.Allocator.Error)![]const u8 {
