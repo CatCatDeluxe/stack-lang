@@ -48,6 +48,8 @@ pub const Type = enum {
 	number,
 	/// A symbol (a string later compiled down to an int)
 	symbol,
+	/// A string. Because of limitationsm the token's text contains the surrounding quotes. Use `innerText` to get the text without them.
+	string,
 	/// A comment. Can be ignored.
 	comment,
 	/// The end of a file or string.
@@ -95,6 +97,36 @@ fn new(p: *Scanner, tp: Type, n: usize) Token {
 		.position = p.state,
 		.text = p.eat(n),
 	};
+}
+
+/// Returns the inner text of the token, without any included delimiters.
+/// For `string`s, returns the text without quotes.
+pub fn innerText(self: Token) []const u8 {
+	switch (self.type) {
+		.string => {
+			if (self.text.len < 2) return &.{};
+			return self.text[1..self.text.len - 1];
+		},
+		else => return self.text,
+	}
+}
+
+/// For a scanner running on the value of `innerText`, returns the position of its current state in
+/// the token's file, using its `position` member.
+pub fn getGlobalPos(self: Token, scanner_state: Scanner.State) Scanner.State {
+	const initial_offset: u16 = switch (self.type) {
+		.string => 1,
+		else => 0,
+	};
+	var res = scanner_state;
+	res.position += initial_offset;
+	res.line += scanner_state.line;
+	if (scanner_state.line == 0) {
+		res.col += initial_offset + scanner_state.col;
+	} else {
+		res.col = scanner_state.col;
+	}
+	return res;
 }
 
 /// Eats a name from `s`. Assumes that the current next character is a valid start to the name.
@@ -149,6 +181,25 @@ pub fn read(p_in: Scanner) ?Token {
 	if (!p.valid()) return .new(&p, .end, 0);
 
 	const c = p_in.nextc();
+
+	if (c == '"') {
+		p.advance(1);
+		while (p.valid()) {
+			switch (p.nextc()) {
+				'\\' => p.advance(2),
+				'"' => {
+					p.advance(1);
+					break;
+				},
+				else => p.advance(1),
+			}
+		}
+		return .{
+			.type = .string,
+			.position = p_in.state,
+			.text = p_in.next(p.state.position - p_in.state.position),
+		};
+	}
 
 	// Handle comments
 	if (c == '-' and p.peekc(1) == '-') {

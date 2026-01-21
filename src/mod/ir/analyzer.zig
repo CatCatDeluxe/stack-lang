@@ -8,6 +8,7 @@ const ErrList = @import("../error_list.zig");
 const Variant = @import("../cross/variant.zig").Variant;
 const Constants = @import("../cross/constants.zig");
 const Name = @import("../text/name.zig");
+const StringEscaper = @import("../text/string_escaper.zig");
 
 const ir = @import("ir.zig");
 pub const IRNode = ir.IRNode;
@@ -60,8 +61,7 @@ fn getMatchName(s: *AnyScanner(ASTNode), errs: *ErrList) struct {?[]const u8, bo
 					s.advance(1);
 					break :nm tk.text;
 				},
-				.number, .symbol => {
-					// s.advance(1);
+				.number, .symbol, .string => {
 					return .{null, true};
 				},
 				else => {
@@ -107,29 +107,50 @@ fn analyzeMatchNames(s: *AnyScanner(ASTNode), w: ObjWriter(MatchCheckNode), ctx:
 					s.advance(1);
 					return error.AnalyzerError;
 				},
-				.basic => |tk| {
-					// try to match equality for literals
-					const variant: Variant = switch (tk.type) {
-						.number => Variant.fromPrimitive(
-							std.fmt.parseFloat(f64, tk.text) catch b: {
-								ctx.errs.pushError(.err, tk.position, "Invalid numeric literal: {s}", .{tk.text});
-								break :b 0;
-							}
-						),
-						.symbol => try getNameVariant(ctx, tk),
-						else => {
-							ctx.errs.pushError(.err, tk.position, "Unexpected token '{s}' as condition in match names", .{tk.text});
-							return error.AnalyzerError;
+				.basic => |tk| switch (tk.type) {
+					.number => {
+						const num = std.fmt.parseFloat(f64, tk.text) catch b: {
+							ctx.errs.pushError(.err, tk.position, "Invalid numeric literal: {s}", .{tk.text});
+							break :b 0;
+						};
+						try w.write(MatchCheckNode {
+							.name = own_name,
+							.check = .{.literal = .fromPrimitive(num)},
+							.root = tk,
+						});
+						s.advance(1);
+					},
+					.symbol => {
+						try w.write(MatchCheckNode {
+							.name = own_name,
+							.check = .{.literal = try getNameVariant(ctx, tk)},
+							.root = tk,
+						});
+						s.advance(1);
+					},
+					.string => {
+						var escaper = StringEscaper.init(tk.innerText());
+						while (escaper.next()) |parsed| {
+							var new_tk = tk;
+							new_tk.position = tk.getGlobalPos(escaper.scanner.state);
+
+							const ch: u8 = parsed catch {
+								ctx.errs.pushError(.err, new_tk.position, "unknown escape code: '\\{c}'", .{escaper.scanner.eatc()});
+								continue;
+							};
+
+							try w.write(MatchCheckNode {
+								.name = own_name,
+								.check = .{.literal = .fromPrimitive(ch)},
+								.root = new_tk,
+							});
 						}
-					};
-
-					try w.write(MatchCheckNode {
-						.name = own_name,
-						.check = .{.literal = variant},
-						.root = tk,
-					});
-
-					s.advance(1);
+						s.advance(1);
+					},
+					else => {
+						ctx.errs.pushError(.err, tk.position, "Unexpected token '{s}' as condition in match names", .{tk.text});
+						return error.AnalyzerError;
+					}
 				},
 				.block => |block| {
 					const res = try w.add();
@@ -212,6 +233,20 @@ pub fn analyze(ast: ASTNode, w: ObjWriter(IRNode), ctx: Context) (AnalyzerError 
 				.symbol => {
 					const sym_var = try getNameVariant(ctx, tk);
 					try w.write(.init(tk, .{.push = sym_var}));
+				},
+				.string => {
+					var escaper = StringEscaper.init(tk.innerText());
+					while (escaper.next()) |parsed| {
+						var new_tk = tk;
+						new_tk.position = tk.getGlobalPos(escaper.scanner.state);
+
+						const ch: u8 = parsed catch {
+							ctx.errs.pushError(.err, new_tk.position, "unknown escape code: '\\{c}'", .{escaper.scanner.eatc()});
+							continue;
+						};
+
+						try w.write(.init(new_tk, .{.push = .fromPrimitive(ch)}));
+					}
 				},
 				.sym_call => try w.write(.init(tk, .{.call = {}})),
 				.sym_this_func => try w.write(.init(tk, .{.push_own_func = {}})),
