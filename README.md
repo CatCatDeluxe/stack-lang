@@ -18,8 +18,8 @@ Some example code:
 ```lua
 -- Hello world
 
--- (the language does not have strings, for now)
-72 101 108 108 111 32 87 111 114 108 100 33 10
+-- (the language does have strings now!!!)
+"hello world!"
 
 { -- start a function
 | char: -- capture the top of the stack as the local `char`
